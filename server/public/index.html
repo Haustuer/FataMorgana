@@ -4,56 +4,42 @@
   <meta charset="utf-8"/>
   <title>Voxel Room</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <link rel="stylesheet" href="/styles.css">
-  <!-- Three.js from CDN -- >
-  <script src="https://unpkg.com/three@0.159.0/build/three.min.js"></script>-->
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
     <h1>Voxel Room</h1>
     <div class="stats">
       <span id="deviceCount">Devices: 0</span>
-      <span id="gridInfo"></span>
+      <span id="gridInfo">Voxel Preview: 15×15×15</span>
     </div>
   </header>
 
-  <main>
-    <section class="left">
-      <h2>Devices</h2>
-      <div id="devices"></div>
-    </section>
+  <main class="quad-view">
+    <div class="view-panel">
+      <h3>Top (XY @ Z)</h3>
+      <input type="range" id="layerZ" min="0" max="14" value="7">
+      <table id="viewTop" class="slice-table"></table>
+    </div>
 
-    <section class="center">
-      <h2>Grid Mapper</h2>
-      <div id="grid" class="grid"></div>
-    </section>
+    <div class="view-panel">
+      <h3>Side X (YZ @ X)</h3>
+      <input type="range" id="layerX" min="0" max="14" value="7">
+      <table id="viewSideX" class="slice-table"></table>
+    </div>
 
-    <section class="right">
-      <h2>Voxel Cloud (Preview)</h2>
-      <div class="viewer">
-        <canvas id="voxelCanvas"></canvas>
-      </div>
-      <div class="controls">
-        <label>Z length:
-          <input type="number" id="zLenInput" min="10" max="300" step="10" value="100"/>
-        </label>
-        <button id="resetView">Reset View</button>
-      </div>
-    </section>
+    <div class="view-panel">
+      <h3>Side Y (XZ @ Y)</h3>
+      <input type="range" id="layerY" min="0" max="14" value="7">
+      <table id="viewSideY" class="slice-table"></table>
+    </div>
+
+    <div class="view-panel">
+      <h3>3D View</h3>
+      <canvas id="voxelCanvas"></canvas>
+    </div>
   </main>
 
-  
- <!-- Use ES modules -->
-  <script type="module">
-    // Load Three.js as an ES module
-    import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-
-    // Expose to global if your app expects window.THREE
-    window.THREE = THREE;
-
-    // Now load your app which uses window.THREE
-    import '/app.js';
-  </script>
-
+  <script type="module" src="app.js"></script>
 </body>
 </html>
