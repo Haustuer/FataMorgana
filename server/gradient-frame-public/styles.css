@@ -79,3 +79,20 @@ dt {
   background: #020617;
   white-space: pre-wrap;
 }
+
+.preview-shell {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  border-radius: 8px;
+  background: #020617;
+  overflow: auto;
+}
+
+#previewCanvas {
+  image-rendering: pixelated;
+  width: min(100%, 480px);
+  height: auto;
+  border: 1px solid #334155;
+  background: black;
+}
