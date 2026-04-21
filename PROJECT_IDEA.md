@@ -97,7 +97,7 @@ This allows the sender and receiver to agree on how the payload must be interpre
 
 ### Payload Layout
 
-Starting at byte `8`, the packet co1ayload.
+Starting at byte `8`, the packet co11ayload.
 
 For `FrameType = 1` and `FrameType = 2`, the payload contains image pixel data.
 

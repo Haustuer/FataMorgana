@@ -23,8 +23,8 @@ function quantizeRgb565Channel(value, levels) {
 }
 
 function gradientPixel(x, y, width, height, rgbType) {
-  let r = Math.round((x / Math.max(1, width - 1)) * 255);
-  let g = Math.round((y / Math.max(1, height - 1)) * 255);
+  let r = Math.round((y / Math.max(1, height - 1)) * 255);
+  let g = Math.round((x / Math.max(1, width - 1)) * 255);
   let b = Math.round(((x + y) / Math.max(1, width + height - 2)) * 255);
 
   if (rgbType === 1) {

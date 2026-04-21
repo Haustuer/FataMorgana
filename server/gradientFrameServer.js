@@ -78,8 +78,8 @@ function buildGradientFrame(width, height, rgbType) {
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const pixelIndex = y * width + x;
-      const r = Math.round((x / Math.max(1, width - 1)) * 255);
-      const g = Math.round((y / Math.max(1, height - 1)) * 255);
+      const r = Math.round((y / Math.max(1, height - 1)) * 255);
+      const g = Math.round((x / Math.max(1, width - 1)) * 255);
       const b = Math.round(((x + y) / Math.max(1, width + height - 2)) * 255);
 
       if (rgbType === RGB565) {

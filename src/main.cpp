@@ -8,7 +8,7 @@
 #include "StatusPage.h"
 
 constexpr uint8_t LED_PIN = 12;
-constexpr uint16_t LED_COUNT = 100;
+constexpr uint16_t LED_COUNT = 256;
 constexpr uint16_t UDP_PORT = 7777;
 constexpr uint16_t HTTP_PORT = 80;
 
@@ -19,23 +19,44 @@ constexpr uint8_t FRAME_TYPE_IMAGE_CONTINUATION = 2;
 constexpr uint8_t RGB332 = 0;
 constexpr uint8_t RGB565 = 1;
 
+constexpr uint8_t MAPPING_ROW = 0;
+constexpr uint8_t MAPPING_COLUMN = 1;
+constexpr uint8_t MAPPING_RECTANGLE = 2;
+
+constexpr uint8_t SAMPLE_PIXEL = 0;
+constexpr uint8_t SAMPLE_INTERPOLATED = 1;
+
 constexpr size_t HEADER_SIZE = 8;
 constexpr size_t MAX_PACKET_SIZE = 1200;
 constexpr size_t MAX_PAYLOAD_SIZE = MAX_PACKET_SIZE - HEADER_SIZE;
 constexpr size_t MAX_FRAME_BYTES = 4800;
 constexpr size_t MAX_CHUNKS = (MAX_FRAME_BYTES + MAX_PAYLOAD_SIZE - 1) / MAX_PAYLOAD_SIZE;
 
-constexpr uint16_t REGION_X = 0;
-constexpr uint16_t REGION_Y = 0;
-constexpr uint16_t REGION_WIDTH = 10;
-constexpr uint16_t REGION_HEIGHT = 10;
+struct MappingConfig {
+  uint8_t mode = MAPPING_RECTANGLE;
+  uint8_t sampleMode = SAMPLE_PIXEL;
+  uint16_t rowIndex = 0;
+  uint16_t columnIndex = 0;
+  uint16_t linePixels = LED_COUNT;
+  uint16_t rectX = 0;
+  uint16_t rectY = 0;
+  uint16_t rectWidth = 10;
+  uint16_t rectHeight = 10;
+  bool serpentine = false;
+};
 
-static_assert(REGION_WIDTH * REGION_HEIGHT <= LED_COUNT, "Selected region must fit on the LED strip.");
+struct RgbColor {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+};
 
 WiFiUDP udp;
 ESP8266WebServer webServer(HTTP_PORT);
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 WiFiManager wm;
+
+MappingConfig mappingConfig;
 
 uint8_t packetBuffer[MAX_PACKET_SIZE];
 uint8_t frameBuffer[MAX_FRAME_BYTES];
@@ -75,8 +96,7 @@ size_t bytesPerPixel(uint8_t rgbType) {
 }
 
 size_t totalFrameBytes(uint16_t width, uint16_t height, uint8_t rgbType) {
-  const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
-  return pixelCount * bytesPerPixel(rgbType);
+  return static_cast<size_t>(width) * static_cast<size_t>(height) * bytesPerPixel(rgbType);
 }
 
 uint8_t deriveChunkCount(size_t frameBytes) {
@@ -134,19 +154,94 @@ const char* wifiStatusName(wl_status_t status) {
   }
 }
 
+const char* mappingModeName(uint8_t mode) {
+  if (mode == MAPPING_ROW) {
+    return "row";
+  }
+
+  if (mode == MAPPING_COLUMN) {
+    return "column";
+  }
+
+  if (mode == MAPPING_RECTANGLE) {
+    return "rectangle";
+  }
+
+  return "unknown";
+}
+
+const char* sampleModeName(uint8_t mode) {
+  if (mode == SAMPLE_PIXEL) {
+    return "pixel";
+  }
+
+  if (mode == SAMPLE_INTERPOLATED) {
+    return "interpolated";
+  }
+
+  return "unknown";
+}
+
+void sanitizeMappingConfig() {
+  if (mappingConfig.mode > MAPPING_RECTANGLE) {
+    mappingConfig.mode = MAPPING_RECTANGLE;
+  }
+
+  if (mappingConfig.sampleMode > SAMPLE_INTERPOLATED) {
+    mappingConfig.sampleMode = SAMPLE_PIXEL;
+  }
+
+  if (mappingConfig.linePixels < 1) {
+    mappingConfig.linePixels = 1;
+  }
+
+  if (mappingConfig.linePixels > LED_COUNT) {
+    mappingConfig.linePixels = LED_COUNT;
+  }
+
+  if (mappingConfig.rectWidth < 1) {
+    mappingConfig.rectWidth = 1;
+  }
+
+  if (mappingConfig.rectHeight < 1) {
+    mappingConfig.rectHeight = 1;
+  }
+}
+
 void rejectPacket(const char* message) {
   rejectedPackets++;
   Serial.println(message);
 }
 
-void writeRegionString(char* buffer, size_t bufferSize) {
+void writeMappingSummary(char* buffer, size_t bufferSize) {
+  if (mappingConfig.mode == MAPPING_ROW) {
+    snprintf(buffer,
+             bufferSize,
+             "row %u, %u leds, %s",
+             mappingConfig.rowIndex,
+             mappingConfig.linePixels,
+             sampleModeName(mappingConfig.sampleMode));
+    return;
+  }
+
+  if (mappingConfig.mode == MAPPING_COLUMN) {
+    snprintf(buffer,
+             bufferSize,
+             "column %u, %u leds, %s",
+             mappingConfig.columnIndex,
+             mappingConfig.linePixels,
+             sampleModeName(mappingConfig.sampleMode));
+    return;
+  }
+
   snprintf(buffer,
            bufferSize,
-           "%u,%u %ux%u",
-           REGION_X,
-           REGION_Y,
-           REGION_WIDTH,
-           REGION_HEIGHT);
+           "rect %u,%u %ux%u, serpentine %s",
+           mappingConfig.rectX,
+           mappingConfig.rectY,
+           mappingConfig.rectWidth,
+           mappingConfig.rectHeight,
+           mappingConfig.serpentine ? "on" : "off");
 }
 
 void writeLastFrameString(char* buffer, size_t bufferSize) {
@@ -191,16 +286,159 @@ void writeLastRenderString(char* buffer, size_t bufferSize) {
            lastPacketMillis);
 }
 
+RgbColor blackColor() {
+  return {0, 0, 0};
+}
+
+uint32_t toNeoColor(const RgbColor& color) {
+  return strip.Color(color.r, color.g, color.b);
+}
+
+void clearStrip(bool showNow) {
+  for (uint16_t ledIndex = 0; ledIndex < LED_COUNT; ledIndex++) {
+    strip.setPixelColor(ledIndex, 0, 0, 0);
+  }
+
+  if (showNow) {
+    strip.show();
+  }
+}
+
+RgbColor decodePixel(size_t pixelIndex) {
+  if (activeRgbType == RGB332) {
+    const uint8_t packed = frameBuffer[pixelIndex];
+    return {
+      static_cast<uint8_t>(((packed >> 5) & 0x07) * 255 / 7),
+      static_cast<uint8_t>(((packed >> 2) & 0x07) * 255 / 7),
+      static_cast<uint8_t>((packed & 0x03) * 255 / 3),
+    };
+  }
+
+  const size_t offset = pixelIndex * 2;
+  const uint16_t packed = static_cast<uint16_t>(frameBuffer[offset]) |
+                          (static_cast<uint16_t>(frameBuffer[offset + 1]) << 8);
+  return {
+    static_cast<uint8_t>(((packed >> 11) & 0x1F) * 255 / 31),
+    static_cast<uint8_t>(((packed >> 5) & 0x3F) * 255 / 63),
+    static_cast<uint8_t>((packed & 0x1F) * 255 / 31),
+  };
+}
+
+RgbColor imagePixelAt(int32_t x, int32_t y) {
+  if (x < 0 || y < 0) {
+    return blackColor();
+  }
+
+  if (x >= activeWidth || y >= activeHeight) {
+    return blackColor();
+  }
+
+  return decodePixel(static_cast<size_t>(y) * activeWidth + x);
+}
+
+RgbColor interpolateColors(const RgbColor& left, const RgbColor& right, float factor) {
+  return {
+    static_cast<uint8_t>(left.r + (right.r - left.r) * factor + 0.5f),
+    static_cast<uint8_t>(left.g + (right.g - left.g) * factor + 0.5f),
+    static_cast<uint8_t>(left.b + (right.b - left.b) * factor + 0.5f),
+  };
+}
+
+RgbColor sampleLineColor(bool rowMode, uint16_t fixedIndex, uint16_t ledIndex, uint16_t totalLeds) {
+  const uint16_t sourceSpan = rowMode ? activeWidth : activeHeight;
+  if (sourceSpan == 0) {
+    return blackColor();
+  }
+
+  if (mappingConfig.sampleMode == SAMPLE_PIXEL || sourceSpan == 1 || totalLeds == 1) {
+    const uint32_t numerator = static_cast<uint32_t>(ledIndex) * static_cast<uint32_t>(sourceSpan - 1);
+    const uint16_t sourceIndex = totalLeds <= 1
+      ? 0
+      : static_cast<uint16_t>((numerator + (totalLeds - 1) / 2) / (totalLeds - 1));
+    return rowMode
+      ? imagePixelAt(sourceIndex, fixedIndex)
+      : imagePixelAt(fixedIndex, sourceIndex);
+  }
+
+  const float position = (static_cast<float>(ledIndex) * static_cast<float>(sourceSpan - 1)) /
+                         static_cast<float>(totalLeds - 1);
+  const uint16_t lowerIndex = static_cast<uint16_t>(position);
+  uint16_t upperIndex = lowerIndex + 1;
+  if (upperIndex >= sourceSpan) {
+    upperIndex = sourceSpan - 1;
+  }
+
+  const float factor = position - lowerIndex;
+  const RgbColor lowerColor = rowMode
+    ? imagePixelAt(lowerIndex, fixedIndex)
+    : imagePixelAt(fixedIndex, lowerIndex);
+  const RgbColor upperColor = rowMode
+    ? imagePixelAt(upperIndex, fixedIndex)
+    : imagePixelAt(fixedIndex, upperIndex);
+
+  return interpolateColors(lowerColor, upperColor, factor);
+}
+
+void renderFrame() {
+  clearStrip(false);
+
+  if (activeWidth == 0 || activeHeight == 0) {
+    strip.show();
+    return;
+  }
+
+  if (mappingConfig.mode == MAPPING_ROW) {
+    if (mappingConfig.rowIndex < activeHeight) {
+      for (uint16_t ledIndex = 0; ledIndex < mappingConfig.linePixels; ledIndex++) {
+        strip.setPixelColor(
+          ledIndex,
+          toNeoColor(sampleLineColor(true, mappingConfig.rowIndex, ledIndex, mappingConfig.linePixels))
+        );
+      }
+    }
+  } else if (mappingConfig.mode == MAPPING_COLUMN) {
+    if (mappingConfig.columnIndex < activeWidth) {
+      for (uint16_t ledIndex = 0; ledIndex < mappingConfig.linePixels; ledIndex++) {
+        strip.setPixelColor(
+          ledIndex,
+          toNeoColor(sampleLineColor(false, mappingConfig.columnIndex, ledIndex, mappingConfig.linePixels))
+        );
+      }
+    }
+  } else {
+    const size_t rectanglePixels = static_cast<size_t>(mappingConfig.rectWidth) * mappingConfig.rectHeight;
+    const size_t ledCount = rectanglePixels < LED_COUNT ? rectanglePixels : LED_COUNT;
+
+    for (size_t ledIndex = 0; ledIndex < ledCount; ledIndex++) {
+      const uint16_t row = static_cast<uint16_t>(ledIndex / mappingConfig.rectWidth);
+      if (row >= mappingConfig.rectHeight) {
+        break;
+      }
+
+      uint16_t column = static_cast<uint16_t>(ledIndex % mappingConfig.rectWidth);
+      if (mappingConfig.serpentine && (row % 2 == 1)) {
+        column = mappingConfig.rectWidth - 1 - column;
+      }
+
+      const uint16_t sourceX = mappingConfig.rectX + column;
+      const uint16_t sourceY = mappingConfig.rectY + row;
+      strip.setPixelColor(static_cast<uint16_t>(ledIndex), toNeoColor(imagePixelAt(sourceX, sourceY)));
+    }
+  }
+
+  strip.show();
+}
+
 String buildStatusJson() {
-  StaticJsonDocument<512> doc;
-  char region[32];
+  JsonDocument doc;
+  char mapping[64];
   char lastFrame[32];
   char imageSize[20];
   char chunks[32];
   char packets[64];
   char lastRender[40];
 
-  writeRegionString(region, sizeof(region));
+  writeMappingSummary(mapping, sizeof(mapping));
   writeLastFrameString(lastFrame, sizeof(lastFrame));
   writeImageSizeString(imageSize, sizeof(imageSize));
   writeChunkString(chunks, sizeof(chunks));
@@ -211,7 +449,9 @@ String buildStatusJson() {
   doc["wifiStatus"] = wifiStatusName(WiFi.status());
   doc["udpPort"] = UDP_PORT;
   doc["ledCount"] = LED_COUNT;
-  doc["region"] = region;
+  doc["mapping"] = mapping;
+  doc["mappingMode"] = mappingModeName(mappingConfig.mode);
+  doc["sampleMode"] = sampleModeName(mappingConfig.sampleMode);
   doc["lastFrame"] = lastFrame;
   doc["imageSize"] = imageSize;
   doc["rgbType"] = rgbTypeName(lastSeenRgbType);
@@ -220,6 +460,26 @@ String buildStatusJson() {
   doc["renderedFrames"] = renderedFrames;
   doc["lastRender"] = lastRender;
   doc["frameInProgress"] = frameInProgress;
+
+  String json;
+  serializeJson(doc, json);
+  return json;
+}
+
+String buildConfigJson() {
+  JsonDocument doc;
+
+  doc["mode"] = mappingConfig.mode;
+  doc["sampleMode"] = mappingConfig.sampleMode;
+  doc["rowIndex"] = mappingConfig.rowIndex;
+  doc["columnIndex"] = mappingConfig.columnIndex;
+  doc["linePixels"] = mappingConfig.linePixels;
+  doc["rectX"] = mappingConfig.rectX;
+  doc["rectY"] = mappingConfig.rectY;
+  doc["rectWidth"] = mappingConfig.rectWidth;
+  doc["rectHeight"] = mappingConfig.rectHeight;
+  doc["serpentine"] = mappingConfig.serpentine;
+  doc["ledCount"] = LED_COUNT;
 
   String json;
   serializeJson(doc, json);
@@ -235,64 +495,83 @@ void handleWebStatus() {
   webServer.send(200, "application/json", buildStatusJson());
 }
 
+void handleWebGetConfig() {
+  webServer.sendHeader("Cache-Control", "no-store");
+  webServer.send(200, "application/json", buildConfigJson());
+}
+
+void handleWebSetConfig() {
+  if (!webServer.hasArg("plain")) {
+    webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"missing request body\"}");
+    return;
+  }
+
+  JsonDocument doc;
+  const DeserializationError error = deserializeJson(doc, webServer.arg("plain"));
+  if (error) {
+    webServer.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid json\"}");
+    return;
+  }
+
+  if (doc["mode"].is<uint8_t>()) {
+    mappingConfig.mode = doc["mode"];
+  }
+
+  if (doc["sampleMode"].is<uint8_t>()) {
+    mappingConfig.sampleMode = doc["sampleMode"];
+  }
+
+  if (doc["rowIndex"].is<uint16_t>()) {
+    mappingConfig.rowIndex = doc["rowIndex"];
+  }
+
+  if (doc["columnIndex"].is<uint16_t>()) {
+    mappingConfig.columnIndex = doc["columnIndex"];
+  }
+
+  if (doc["linePixels"].is<uint16_t>()) {
+    mappingConfig.linePixels = doc["linePixels"];
+  }
+
+  if (doc["rectX"].is<uint16_t>()) {
+    mappingConfig.rectX = doc["rectX"];
+  }
+
+  if (doc["rectY"].is<uint16_t>()) {
+    mappingConfig.rectY = doc["rectY"];
+  }
+
+  if (doc["rectWidth"].is<uint16_t>()) {
+    mappingConfig.rectWidth = doc["rectWidth"];
+  }
+
+  if (doc["rectHeight"].is<uint16_t>()) {
+    mappingConfig.rectHeight = doc["rectHeight"];
+  }
+
+  if (doc["serpentine"].is<bool>()) {
+    mappingConfig.serpentine = doc["serpentine"];
+  }
+
+  sanitizeMappingConfig();
+
+  if (!frameInProgress && activeWidth > 0 && activeHeight > 0) {
+    renderFrame();
+    lastRenderMillis = millis();
+  }
+
+  webServer.send(200, "application/json", buildConfigJson());
+}
+
 void startWebServer() {
   webServer.on("/", HTTP_GET, handleWebRoot);
   webServer.on("/status.json", HTTP_GET, handleWebStatus);
+  webServer.on("/config.json", HTTP_GET, handleWebGetConfig);
+  webServer.on("/config", HTTP_POST, handleWebSetConfig);
   webServer.begin();
+
   const String localIp = WiFi.localIP().toString();
   Serial.printf("HTTP status page on %s:%u\n", localIp.c_str(), HTTP_PORT);
-}
-
-void clearStrip() {
-  for (uint16_t i = 0; i < LED_COUNT; i++) {
-    strip.setPixelColor(i, 0, 0, 0);
-  }
-  strip.show();
-}
-
-uint32_t decodePixel(size_t pixelIndex) {
-  if (activeRgbType == RGB332) {
-    const uint8_t packed = frameBuffer[pixelIndex];
-    const uint8_t r = static_cast<uint8_t>(((packed >> 5) & 0x07) * 255 / 7);
-    const uint8_t g = static_cast<uint8_t>(((packed >> 2) & 0x07) * 255 / 7);
-    const uint8_t b = static_cast<uint8_t>((packed & 0x03) * 255 / 3);
-    return strip.Color(r, g, b);
-  }
-
-  const size_t offset = pixelIndex * 2;
-  const uint16_t packed = static_cast<uint16_t>(frameBuffer[offset]) |
-                          (static_cast<uint16_t>(frameBuffer[offset + 1]) << 8);
-  const uint8_t r = static_cast<uint8_t>(((packed >> 11) & 0x1F) * 255 / 31);
-  const uint8_t g = static_cast<uint8_t>(((packed >> 5) & 0x3F) * 255 / 63);
-  const uint8_t b = static_cast<uint8_t>((packed & 0x1F) * 255 / 31);
-  return strip.Color(r, g, b);
-}
-
-void renderFrame() {
-  uint16_t ledIndex = 0;
-
-  for (uint16_t y = 0; y < REGION_HEIGHT && ledIndex < LED_COUNT; y++) {
-    for (uint16_t x = 0; x < REGION_WIDTH && ledIndex < LED_COUNT; x++) {
-      const uint16_t sourceX = REGION_X + x;
-      const uint16_t sourceY = REGION_Y + y;
-
-      if (sourceX < activeWidth && sourceY < activeHeight) {
-        const size_t pixelIndex = static_cast<size_t>(sourceY) * activeWidth + sourceX;
-        strip.setPixelColor(ledIndex, decodePixel(pixelIndex));
-      } else {
-        strip.setPixelColor(ledIndex, 0, 0, 0);
-      }
-
-      ledIndex++;
-    }
-  }
-
-  while (ledIndex < LED_COUNT) {
-    strip.setPixelColor(ledIndex, 0, 0, 0);
-    ledIndex++;
-  }
-
-  strip.show();
 }
 
 bool beginFrame(uint8_t frameCounter, uint8_t rgbType, uint16_t width, uint16_t height) {
@@ -419,10 +698,12 @@ void handleFramePacket(const uint8_t* data, size_t length) {
 void setup() {
   Serial.begin(115200);
 
+  sanitizeMappingConfig();
+
   strip.begin();
   strip.show();
   strip.setBrightness(80);
-  clearStrip();
+  clearStrip(true);
 
   wm.setConfigPortalBlocking(false);
   wm.autoConnect("LED-Setup");
