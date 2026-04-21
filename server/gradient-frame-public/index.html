@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gradient Frame Sender</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="card">
+      <h1>Gradient Frame Sender</h1>
+      <p>Configure the test image and send a UDP gradient frame using the 8-byte protocol.</p>
+
+      <form id="frameForm" class="form">
+        <label>
+          Width
+          <input id="width" name="width" type="number" min="1" step="1" required>
+        </label>
+
+        <label>
+          Height
+          <input id="height" name="height" type="number" min="1" step="1" required>
+        </label>
+
+        <label>
+          RGB Type
+          <select id="rgbType" name="rgbType"></select>
+        </label>
+
+        <button type="submit">Send Gradient Frame</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Server Info</h2>
+      <dl class="details">
+        <div><dt>HTTP Port</dt><dd id="httpPort">-</dd></div>
+        <div><dt>UDP Target</dt><dd id="udpTarget">-</dd></div>
+        <div><dt>Max Payload</dt><dd id="maxPayload">-</dd></div>
+        <div><dt>Max Frame Bytes</dt><dd id="maxFrameBytes">-</dd></div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Last Send</h2>
+      <dl class="details">
+        <div><dt>Frame Counter</dt><dd id="frameCounter">-</dd></div>
+        <div><dt>Size</dt><dd id="frameSize">-</dd></div>
+        <div><dt>RGB Type</dt><dd id="rgbTypeLabel">-</dd></div>
+        <div><dt>Chunks</dt><dd id="chunkCount">-</dd></div>
+        <div><dt>Payload Bytes</dt><dd id="payloadBytes">-</dd></div>
+        <div><dt>Packet Sizes</dt><dd id="packetBytes">-</dd></div>
+      </dl>
+      <pre id="message" class="message">Loading configuration...</pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
