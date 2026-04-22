@@ -9,12 +9,20 @@
 
 constexpr uint8_t LED_PIN = 12;
 constexpr uint16_t LED_COUNT = 256;
-constexpr uint16_t UDP_PORT = 7777;
+constexpr uint16_t MULTICAST_PORT = 7777;
+constexpr uint16_t RESPONSE_PORT = 7778;
 constexpr uint16_t HTTP_PORT = 80;
+
+// Multicast group address: 239.255.42.1
+const IPAddress MULTICAST_ADDR(239, 255, 42, 1);
 
 constexpr uint8_t FRAME_TYPE_CONFIG = 0;
 constexpr uint8_t FRAME_TYPE_IMAGE_START = 1;
 constexpr uint8_t FRAME_TYPE_IMAGE_CONTINUATION = 2;
+
+constexpr uint8_t CONFIG_SUBTYPE_DISCOVERY = 0;
+constexpr uint8_t CONFIG_SUBTYPE_SET_MAPPING = 1;
+constexpr uint8_t CONFIG_SUBTYPE_SET_BRIGHTNESS = 2;
 
 constexpr uint8_t RGB332 = 0;
 constexpr uint8_t RGB565 = 1;
@@ -25,6 +33,10 @@ constexpr uint8_t MAPPING_RECTANGLE = 2;
 
 constexpr uint8_t SAMPLE_PIXEL = 0;
 constexpr uint8_t SAMPLE_INTERPOLATED = 1;
+
+constexpr uint8_t SERPENTINE_NONE = 0;
+constexpr uint8_t SERPENTINE_HORIZONTAL = 1;
+constexpr uint8_t SERPENTINE_VERTICAL = 2;
 
 constexpr size_t HEADER_SIZE = 8;
 constexpr size_t MAX_PACKET_SIZE = 1200;
@@ -42,7 +54,11 @@ struct MappingConfig {
   uint16_t rectY = 0;
   uint16_t rectWidth = 10;
   uint16_t rectHeight = 10;
-  bool serpentine = false;
+  uint8_t serpentine = SERPENTINE_NONE;  // 0=none, 1=horizontal, 2=vertical
+  uint8_t rotation = 0;                   // 0=0°, 1=90°, 2=180°, 3=270°
+  bool flipX = false;                     // Horizontal flip (mirror across vertical axis)
+  bool flipY = false;                     // Vertical flip (mirror across horizontal axis)
+  bool flipZ = false;                     // Diagonal flip (transpose/swap X and Y)
 };
 
 struct RgbColor {
@@ -182,6 +198,22 @@ const char* sampleModeName(uint8_t mode) {
   return "unknown";
 }
 
+const char* serpentineModeName(uint8_t mode) {
+  if (mode == SERPENTINE_NONE) {
+    return "none";
+  }
+
+  if (mode == SERPENTINE_HORIZONTAL) {
+    return "horizontal";
+  }
+
+  if (mode == SERPENTINE_VERTICAL) {
+    return "vertical";
+  }
+
+  return "unknown";
+}
+
 void sanitizeMappingConfig() {
   if (mappingConfig.mode > MAPPING_RECTANGLE) {
     mappingConfig.mode = MAPPING_RECTANGLE;
@@ -205,6 +237,14 @@ void sanitizeMappingConfig() {
 
   if (mappingConfig.rectHeight < 1) {
     mappingConfig.rectHeight = 1;
+  }
+
+  if (mappingConfig.rotation > 3) {
+    mappingConfig.rotation = 0;
+  }
+
+  if (mappingConfig.serpentine > SERPENTINE_VERTICAL) {
+    mappingConfig.serpentine = SERPENTINE_NONE;
   }
 }
 
@@ -241,7 +281,7 @@ void writeMappingSummary(char* buffer, size_t bufferSize) {
            mappingConfig.rectY,
            mappingConfig.rectWidth,
            mappingConfig.rectHeight,
-           mappingConfig.serpentine ? "on" : "off");
+           serpentineModeName(mappingConfig.serpentine));
 }
 
 void writeLastFrameString(char* buffer, size_t bufferSize) {
@@ -410,14 +450,20 @@ void renderFrame() {
     const size_t ledCount = rectanglePixels < LED_COUNT ? rectanglePixels : LED_COUNT;
 
     for (size_t ledIndex = 0; ledIndex < ledCount; ledIndex++) {
-      const uint16_t row = static_cast<uint16_t>(ledIndex / mappingConfig.rectWidth);
+      uint16_t row = static_cast<uint16_t>(ledIndex / mappingConfig.rectWidth);
       if (row >= mappingConfig.rectHeight) {
         break;
       }
 
       uint16_t column = static_cast<uint16_t>(ledIndex % mappingConfig.rectWidth);
-      if (mappingConfig.serpentine && (row % 2 == 1)) {
+
+      // Apply serpentine patterns
+      if (mappingConfig.serpentine == SERPENTINE_HORIZONTAL && (row % 2 == 1)) {
+        // Horizontal serpentine: reverse columns on odd rows (zigzag left-right)
         column = mappingConfig.rectWidth - 1 - column;
+      } else if (mappingConfig.serpentine == SERPENTINE_VERTICAL && (column % 2 == 1)) {
+        // Vertical serpentine: reverse rows on odd columns (zigzag up-down)
+        row = mappingConfig.rectHeight - 1 - row;
       }
 
       const uint16_t sourceX = mappingConfig.rectX + column;
@@ -446,8 +492,11 @@ String buildStatusJson() {
   writeLastRenderString(lastRender, sizeof(lastRender));
 
   doc["ip"] = WiFi.localIP().toString();
+  doc["mac"] = WiFi.macAddress();
   doc["wifiStatus"] = wifiStatusName(WiFi.status());
-  doc["udpPort"] = UDP_PORT;
+  doc["multicastGroup"] = MULTICAST_ADDR.toString();
+  doc["multicastPort"] = MULTICAST_PORT;
+  doc["responsePort"] = RESPONSE_PORT;
   doc["ledCount"] = LED_COUNT;
   doc["mapping"] = mapping;
   doc["mappingMode"] = mappingModeName(mappingConfig.mode);
@@ -479,11 +528,126 @@ String buildConfigJson() {
   doc["rectWidth"] = mappingConfig.rectWidth;
   doc["rectHeight"] = mappingConfig.rectHeight;
   doc["serpentine"] = mappingConfig.serpentine;
+  doc["rotation"] = mappingConfig.rotation;
+  doc["flipX"] = mappingConfig.flipX;
+  doc["flipY"] = mappingConfig.flipY;
+  doc["flipZ"] = mappingConfig.flipZ;
   doc["ledCount"] = LED_COUNT;
 
   String json;
   serializeJson(doc, json);
   return json;
+}
+
+void sendDiscoveryResponse(IPAddress serverIP, uint16_t serverPort) {
+  uint8_t response[64];
+  memset(response, 0, sizeof(response));
+
+  // Magic bytes "FATA" (0x46415441)
+  response[0] = 0x46; // 'F'
+  response[1] = 0x41; // 'A'
+  response[2] = 0x54; // 'T'
+  response[3] = 0x41; // 'A'
+
+  // Protocol version and type
+  response[4] = 1;    // Version
+  response[5] = 0x01; // Discovery response type
+  response[6] = 0;    // Reserved
+  response[7] = 0;    // Reserved
+
+  // Device IP (network byte order - big-endian)
+  IPAddress localIP = WiFi.localIP();
+  response[8] = localIP[0];
+  response[9] = localIP[1];
+  response[10] = localIP[2];
+  response[11] = localIP[3];
+
+  // MAC address (6 bytes)
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  memcpy(response + 12, mac, 6);
+
+  // Chip ID (little-endian)
+  uint32_t chipId = ESP.getChipId();
+  response[18] = chipId & 0xFF;
+  response[19] = (chipId >> 8) & 0xFF;
+  response[20] = (chipId >> 16) & 0xFF;
+  response[21] = (chipId >> 24) & 0xFF;
+
+  // Uptime (little-endian)
+  uint32_t uptime = millis();
+  response[22] = uptime & 0xFF;
+  response[23] = (uptime >> 8) & 0xFF;
+  response[24] = (uptime >> 16) & 0xFF;
+  response[25] = (uptime >> 24) & 0xFF;
+
+  // LED hardware info
+  response[26] = LED_COUNT & 0xFF;
+  response[27] = (LED_COUNT >> 8) & 0xFF;
+  response[28] = LED_PIN;
+  response[29] = strip.getBrightness();
+  response[30] = 1; // Firmware major version
+  response[31] = 0; // Firmware minor version
+
+  // Mapping configuration
+  response[32] = mappingConfig.mode;
+  response[33] = mappingConfig.sampleMode;
+
+  // Row/Column index (same field, little-endian)
+  response[34] = mappingConfig.rowIndex & 0xFF;
+  response[35] = (mappingConfig.rowIndex >> 8) & 0xFF;
+
+  // Line pixels (little-endian)
+  response[36] = mappingConfig.linePixels & 0xFF;
+  response[37] = (mappingConfig.linePixels >> 8) & 0xFF;
+
+  // Rectangle configuration (little-endian)
+  response[38] = mappingConfig.rectX & 0xFF;
+  response[39] = (mappingConfig.rectX >> 8) & 0xFF;
+  response[40] = mappingConfig.rectY & 0xFF;
+  response[41] = (mappingConfig.rectY >> 8) & 0xFF;
+  response[42] = mappingConfig.rectWidth & 0xFF;
+  response[43] = (mappingConfig.rectWidth >> 8) & 0xFF;
+  response[44] = mappingConfig.rectHeight & 0xFF;
+  response[45] = (mappingConfig.rectHeight >> 8) & 0xFF;
+  response[46] = mappingConfig.serpentine;  // 0=none, 1=horizontal, 2=vertical
+
+  // Transform byte: rotation (bits 0-1), flipX (bit 2), flipY (bit 3), flipZ (bit 4)
+  response[47] = (mappingConfig.rotation & 0x03) |
+                 (mappingConfig.flipX ? 0x04 : 0) |
+                 (mappingConfig.flipY ? 0x08 : 0) |
+                 (mappingConfig.flipZ ? 0x10 : 0);
+
+  // Statistics (little-endian)
+  response[48] = acceptedPackets & 0xFF;
+  response[49] = (acceptedPackets >> 8) & 0xFF;
+  response[50] = (acceptedPackets >> 16) & 0xFF;
+  response[51] = (acceptedPackets >> 24) & 0xFF;
+
+  response[52] = rejectedPackets & 0xFF;
+  response[53] = (rejectedPackets >> 8) & 0xFF;
+  response[54] = (rejectedPackets >> 16) & 0xFF;
+  response[55] = (rejectedPackets >> 24) & 0xFF;
+
+  response[56] = renderedFrames & 0xFF;
+  response[57] = (renderedFrames >> 8) & 0xFF;
+  response[58] = (renderedFrames >> 16) & 0xFF;
+  response[59] = (renderedFrames >> 24) & 0xFF;
+
+  // Last frame info (little-endian)
+  response[60] = lastSeenWidth & 0xFF;
+  response[61] = (lastSeenWidth >> 8) & 0xFF;
+  response[62] = lastSeenHeight & 0xFF;
+  response[63] = (lastSeenHeight >> 8) & 0xFF;
+
+  // Send binary UDP packet
+  udp.beginPacket(serverIP, serverPort);
+  udp.write(response, sizeof(response));
+  udp.endPacket();
+
+  Serial.printf("Sent binary discovery response to %s:%u (64 bytes)\n",
+                serverIP.toString().c_str(),
+                serverPort);
 }
 
 void handleWebRoot() {
@@ -549,8 +713,24 @@ void handleWebSetConfig() {
     mappingConfig.rectHeight = doc["rectHeight"];
   }
 
-  if (doc["serpentine"].is<bool>()) {
+  if (doc["serpentine"].is<uint8_t>()) {
     mappingConfig.serpentine = doc["serpentine"];
+  }
+
+  if (doc["rotation"].is<uint8_t>()) {
+    mappingConfig.rotation = doc["rotation"];
+  }
+
+  if (doc["flipX"].is<bool>()) {
+    mappingConfig.flipX = doc["flipX"];
+  }
+
+  if (doc["flipY"].is<bool>()) {
+    mappingConfig.flipY = doc["flipY"];
+  }
+
+  if (doc["flipZ"].is<bool>()) {
+    mappingConfig.flipZ = doc["flipZ"];
   }
 
   sanitizeMappingConfig();
@@ -649,16 +829,45 @@ void handleFramePacket(const uint8_t* data, size_t length) {
   lastFrameType = frameType;
   lastSeenFrameCounter = frameCounter;
   lastChunkIndex = chunkIndex;
+  lastPacketMillis = millis();
+
+  // Handle config frames
+  if (frameType == FRAME_TYPE_CONFIG) {
+    const uint8_t subType = data[3]; // TypeData field contains subtype
+    lastSeenRgbType = subType; // Store subtype for logging
+    lastPayloadBytes = payloadLength;
+
+    if (subType == CONFIG_SUBTYPE_DISCOVERY) {
+      // Discovery request: payload contains server IP (4 bytes) + port (2 bytes)
+      if (payloadLength >= 6) {
+        // Parse server IP (big-endian/network byte order)
+        IPAddress serverIP(payload[0], payload[1], payload[2], payload[3]);
+
+        // Parse response port (big-endian/network byte order)
+        uint16_t serverPort = (static_cast<uint16_t>(payload[4]) << 8) | payload[5];
+
+        Serial.printf("Discovery request from %s:%u\n",
+                      serverIP.toString().c_str(),
+                      serverPort);
+
+        sendDiscoveryResponse(serverIP, serverPort);
+        acceptedPackets++;
+      } else {
+        Serial.println("Invalid discovery request: payload too short");
+        rejectedPackets++;
+      }
+    } else {
+      Serial.printf("Unknown config subtype: %u\n", subType);
+      rejectedPackets++;
+    }
+    return;
+  }
+
+  // Handle image frames - store width/height/rgbType for tracking
   lastSeenRgbType = rgbType;
   lastPayloadBytes = payloadLength;
   lastSeenWidth = width;
   lastSeenHeight = height;
-  lastPacketMillis = millis();
-
-  if (frameType == FRAME_TYPE_CONFIG) {
-    Serial.println("Config frames are not implemented yet");
-    return;
-  }
 
   if (frameType == FRAME_TYPE_IMAGE_START) {
     if (chunkIndex != 0 || !beginFrame(frameCounter, rgbType, width, height)) {
@@ -708,9 +917,18 @@ void setup() {
   wm.setConfigPortalBlocking(false);
   wm.autoConnect("LED-Setup");
 
-  udp.begin(UDP_PORT);
+  // Join multicast group for receiving frames
+  if (udp.beginMulticast(WiFi.localIP(), MULTICAST_ADDR, MULTICAST_PORT)) {
+    Serial.printf("Joined multicast group %s:%u\n",
+                  MULTICAST_ADDR.toString().c_str(),
+                  MULTICAST_PORT);
+  } else {
+    Serial.println("Failed to join multicast group!");
+  }
+
   startWebServer();
-  Serial.printf("UDP listening on %u\n", UDP_PORT);
+  Serial.printf("Device IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Device MAC: %s\n", WiFi.macAddress().c_str());
 }
 
 void loop() {

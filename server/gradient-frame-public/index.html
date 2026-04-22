@@ -1,69 +1,859 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gradient Frame Sender</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FataMorgana Control Panel</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 1.1em;
+    }
+
+    .tabs {
+      display: flex;
+      background: #f5f5f5;
+      border-bottom: 2px solid #ddd;
+      overflow-x: auto;
+    }
+
+    .tab {
+      padding: 15px 30px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font-size: 1em;
+      font-weight: 500;
+      color: #666;
+      transition: all 0.3s ease;
+      white-space: nowrap;
+    }
+
+    .tab:hover {
+      background: #e9e9e9;
+    }
+
+    .tab.active {
+      background: white;
+      color: #667eea;
+      border-bottom: 3px solid #667eea;
+    }
+
+    .tab-content {
+      display: none;
+      padding: 30px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .card {
+      background: #f9f9f9;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .card h3 {
+      color: #333;
+      margin-bottom: 15px;
+      font-size: 1.3em;
+    }
+
+    .button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 1em;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .button:active {
+      transform: translateY(0);
+    }
+
+    .button.secondary {
+      background: #6c757d;
+    }
+
+    .button.success {
+      background: #28a745;
+    }
+
+    .button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .info-item {
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      border-left: 4px solid #667eea;
+    }
+
+    .info-item label {
+      display: block;
+      color: #666;
+      font-size: 0.9em;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+
+    .info-item value {
+      display: block;
+      color: #333;
+      font-size: 1.2em;
+      font-weight: 600;
+    }
+
+    .device-card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 15px;
+      border: 2px solid #e0e0e0;
+      transition: all 0.3s ease;
+    }
+
+    .device-card:hover {
+      border-color: #667eea;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    }
+
+    .device-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .device-title {
+      font-size: 1.4em;
+      color: #333;
+      font-weight: 600;
+    }
+
+    .device-status {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.9em;
+      font-weight: 600;
+    }
+
+    .device-status.online {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .device-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+    }
+
+    .device-detail {
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+
+    .device-detail label {
+      display: block;
+      color: #666;
+      font-size: 0.85em;
+      margin-bottom: 3px;
+    }
+
+    .device-detail value {
+      display: block;
+      color: #333;
+      font-weight: 600;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .stat-box {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      border: 2px solid #e0e0e0;
+    }
+
+    .stat-value {
+      font-size: 2em;
+      font-weight: bold;
+      color: #667eea;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .stat-label {
+      color: #666;
+      font-size: 0.9em;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      border-left: 4px solid #c82333;
+    }
+
+    .success {
+      background: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      border-left: 4px solid #28a745;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 1em;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+    }
+
+    code {
+      background: #f4f4f4;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      color: #c7254e;
+    }
+
+    pre {
+      background: #f4f4f4;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+
+    .empty-state-icon {
+      font-size: 4em;
+      margin-bottom: 20px;
+      opacity: 0.3;
+    }
+  </style>
 </head>
 <body>
-  <main class="layout">
-    <section class="card">
-      <h1>Gradient Frame Sender</h1>
-      <p>Configure the test image and send a UDP gradient frame using the 8-byte protocol.</p>
+  <div class="container">
+    <div class="header">
+      <h1>🎨 FataMorgana Control Panel</h1>
+      <p>Distributed LED Display System</p>
+    </div>
 
-      <form id="frameForm" class="form">
-        <label>
-          Width
-          <input id="width" name="width" type="number" min="1" step="1" required>
-        </label>
+    <div class="tabs">
+      <button class="tab active" onclick="openTab(event, 'overview')">Overview</button>
+      <button class="tab" onclick="openTab(event, 'devices')">Devices</button>
+      <button class="tab" onclick="openTab(event, 'coverage')">Coverage</button>
+      <button class="tab" onclick="openTab(event, 'control')">Control</button>
+      <button class="tab" onclick="openTab(event, 'about')">About</button>
+    </div>
 
-        <label>
-          Height
-          <input id="height" name="height" type="number" min="1" step="1" required>
-        </label>
-
-        <label>
-          RGB Type
-          <select id="rgbType" name="rgbType"></select>
-        </label>
-
-        <button type="submit">Send Gradient Frame</button>
-      </form>
-    </section>
-
-    <section class="card">
-      <h2>Server Info</h2>
-      <dl class="details">
-        <div><dt>HTTP Port</dt><dd id="httpPort">-</dd></div>
-        <div><dt>UDP Target</dt><dd id="udpTarget">-</dd></div>
-        <div><dt>Max Payload</dt><dd id="maxPayload">-</dd></div>
-        <div><dt>Max Frame Bytes</dt><dd id="maxFrameBytes">-</dd></div>
-      </dl>
-    </section>
-
-    <section class="card">
-      <h2>Last Send</h2>
-      <dl class="details">
-        <div><dt>Frame Counter</dt><dd id="frameCounter">-</dd></div>
-        <div><dt>Size</dt><dd id="frameSize">-</dd></div>
-        <div><dt>RGB Type</dt><dd id="rgbTypeLabel">-</dd></div>
-        <div><dt>Chunks</dt><dd id="chunkCount">-</dd></div>
-        <div><dt>Payload Bytes</dt><dd id="payloadBytes">-</dd></div>
-        <div><dt>Packet Sizes</dt><dd id="packetBytes">-</dd></div>
-      </dl>
-      <pre id="message" class="message">Loading configuration...</pre>
-    </section>
-
-    <section class="card">
-      <h2>Frame Preview</h2>
-      <p>This preview uses the same gradient formula as the UDP sender.</p>
-      <div class="preview-shell">
-        <canvas id="previewCanvas" width="24" height="100"></canvas>
+    <div id="overview" class="tab-content active">
+      <div class="card">
+        <h3>Server Status</h3>
+        <div class="info-grid" id="serverInfo">
+          <div class="info-item">
+            <label>Server IP</label>
+            <value id="serverIP">Loading...</value>
+          </div>
+          <div class="info-item">
+            <label>Multicast Group</label>
+            <value id="multicastAddr">Loading...</value>
+          </div>
+          <div class="info-item">
+            <label>Response Port</label>
+            <value id="responsePort">Loading...</value>
+          </div>
+          <div class="info-item">
+            <label>Devices Online</label>
+            <value id="deviceCount">0</value>
+          </div>
+        </div>
       </div>
-    </section>
-  </main>
 
-  <script src="app.js"></script>
+      <div class="card">
+        <h3>Quick Actions</h3>
+        <button class="button" onclick="discoverDevices()">🔍 Discover Devices</button>
+        <button class="button success" onclick="sendTestFrame()">🎨 Send Test Frame</button>
+        <button class="button secondary" onclick="refreshData()">🔄 Refresh</button>
+      </div>
+
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-box">
+          <span class="stat-value" id="totalDevices">0</span>
+          <span class="stat-label">Total Devices</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="totalLEDs">0</span>
+          <span class="stat-label">Total LEDs</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="coveragePercent">0%</span>
+          <span class="stat-label">Coverage</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-value" id="lastDiscovery">Never</span>
+          <span class="stat-label">Last Discovery</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="devices" class="tab-content">
+      <div class="card">
+        <h3>Discovered Devices</h3>
+        <button class="button" onclick="discoverDevices()">🔍 Discover Now</button>
+        <button class="button secondary" onclick="loadDevices()">🔄 Refresh List</button>
+      </div>
+      <div id="devicesList"></div>
+    </div>
+
+    <div id="coverage" class="tab-content">
+      <div class="card">
+        <h3>Image Coverage Map</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Image Width</label>
+            <input type="number" id="coverageWidth" value="24" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>Image Height</label>
+            <input type="number" id="coverageHeight" value="100" min="1" max="100">
+          </div>
+        </div>
+        <button class="button" onclick="calculateCoverage()">Calculate Coverage</button>
+      </div>
+      <div id="coverageDisplay"></div>
+    </div>
+
+    <div id="control" class="tab-content">
+      <div class="card">
+        <h3>Send Frame</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Width</label>
+            <input type="number" id="frameWidth" value="24" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>Height</label>
+            <input type="number" id="frameHeight" value="100" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>RGB Type</label>
+            <select id="rgbType">
+              <option value="0">RGB332 (1 byte/pixel)</option>
+              <option value="1">RGB565 (2 bytes/pixel)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Pattern</label>
+            <select id="pattern">
+              <option value="gradient">Gradient</option>
+              <option value="solid">Solid Color</option>
+              <option value="checkerboard">Checkerboard</option>
+              <option value="rainbow">Rainbow</option>
+            </select>
+          </div>
+        </div>
+        <button class="button success" onclick="sendFrame()">🎨 Send Frame</button>
+      </div>
+
+      <div id="frameResult"></div>
+    </div>
+
+    <div id="about" class="tab-content">
+      <div class="card">
+        <h3>FataMorgana Protocol v1.0</h3>
+        <p>A UDP-based multicast protocol for distributed LED display systems.</p>
+        <br>
+        <h4>Network Architecture:</h4>
+        <ul style="list-style: none; padding-left: 0;">
+          <li style="margin: 10px 0;">📡 <strong>Server → Devices:</strong> Multicast (239.255.42.1:7777)</li>
+          <li style="margin: 10px 0;">📨 <strong>Devices → Server:</strong> Unicast (Response Port 7778)</li>
+        </ul>
+        <br>
+        <h4>Frame Types:</h4>
+        <ul style="list-style: none; padding-left: 0;">
+          <li style="margin: 10px 0;">⚙️ <strong>Type 0:</strong> Config Frame (Discovery)</li>
+          <li style="margin: 10px 0;">🖼️ <strong>Type 1:</strong> Image Start</li>
+          <li style="margin: 10px 0;">➡️ <strong>Type 2:</strong> Image Continuation</li>
+        </ul>
+        <br>
+        <h4>API Endpoints:</h4>
+        <pre><code>GET  /api/config    - Server configuration
+POST /api/discover  - Trigger device discovery
+GET  /api/devices   - List discovered devices
+GET  /api/coverage  - Calculate coverage map
+POST /api/frame     - Send image frame</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let serverConfig = null;
+    let devices = [];
+
+    function openTab(evt, tabName) {
+      const tabs = document.querySelectorAll('.tab');
+      const contents = document.querySelectorAll('.tab-content');
+
+      tabs.forEach(tab => tab.classList.remove('active'));
+      contents.forEach(content => content.classList.remove('active'));
+
+      evt.currentTarget.classList.add('active');
+      document.getElementById(tabName).classList.add('active');
+
+      if (tabName === 'devices') loadDevices();
+      if (tabName === 'coverage') loadCoverageData();
+    }
+
+    async function loadServerConfig() {
+      try {
+        const response = await fetch('/api/config');
+        serverConfig = await response.json();
+
+        document.getElementById('serverIP').textContent = serverConfig.serverIP;
+        document.getElementById('multicastAddr').textContent =
+          `${serverConfig.multicastAddr}:${serverConfig.multicastPort}`;
+        document.getElementById('responsePort').textContent = serverConfig.responsePort;
+
+        return serverConfig;
+      } catch (error) {
+        console.error('Failed to load server config:', error);
+      }
+    }
+
+    async function loadDevices() {
+      const listDiv = document.getElementById('devicesList');
+      listDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading devices...</div>';
+
+      try {
+        const response = await fetch('/api/devices');
+        const data = await response.json();
+        devices = data.devices || [];
+
+        document.getElementById('deviceCount').textContent = devices.length;
+        document.getElementById('totalDevices').textContent = devices.length;
+
+        const totalLEDs = devices.reduce((sum, d) => sum + d.ledCount, 0);
+        document.getElementById('totalLEDs').textContent = totalLEDs;
+
+        if (data.lastDiscovery) {
+          const date = new Date(data.lastDiscovery);
+          document.getElementById('lastDiscovery').textContent = date.toLocaleTimeString();
+        }
+
+        if (devices.length === 0) {
+          listDiv.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">📡</div>
+              <h3>No Devices Discovered</h3>
+              <p>Click "Discover Now" to search for devices on your network.</p>
+              <br>
+              <button class="button" onclick="discoverDevices()">🔍 Discover Devices</button>
+            </div>
+          `;
+          return;
+        }
+
+        listDiv.innerHTML = devices.map(device => `
+          <div class="device-card">
+            <div class="device-header">
+              <div class="device-title">
+                ${device.hostname || device.ip}
+              </div>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <a href="http://${device.ip}" target="_blank" class="button" style="text-decoration: none; padding: 8px 16px; font-size: 0.9em; margin: 0;">
+                  🌐 Open Device
+                </a>
+                <div class="device-status online">● Online</div>
+              </div>
+            </div>
+            <div class="device-details">
+              <div class="device-detail">
+                <label>IP Address</label>
+                <value><a href="http://${device.ip}" target="_blank" style="color: #667eea; text-decoration: none;">${device.ip}</a></value>
+              </div>
+              <div class="device-detail">
+                <label>MAC Address</label>
+                <value>${device.mac}</value>
+              </div>
+              <div class="device-detail">
+                <label>Firmware</label>
+                <value>${device.firmware}</value>
+              </div>
+              <div class="device-detail">
+                <label>LED Count</label>
+                <value>${device.ledCount}</value>
+              </div>
+              <div class="device-detail">
+                <label>Brightness</label>
+                <value>${device.brightness}</value>
+              </div>
+              <div class="device-detail">
+                <label>Mapping Mode</label>
+                <value>${device.mapping.modeName}</value>
+              </div>
+              ${device.mapping.mode === 2 ? `
+                <div class="device-detail">
+                  <label>Rectangle</label>
+                  <value>(${device.mapping.rectX},${device.mapping.rectY}) ${device.mapping.rectWidth}×${device.mapping.rectHeight}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Serpentine</label>
+                  <value>${device.mapping.serpentineModeName || 'none'}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Rotation</label>
+                  <value>${device.mapping.rotation * 90}°</value>
+                </div>
+                <div class="device-detail">
+                  <label>Flip X</label>
+                  <value>${device.mapping.flipX ? 'Yes' : 'No'}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Flip Y</label>
+                  <value>${device.mapping.flipY ? 'Yes' : 'No'}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Flip Z (Diagonal)</label>
+                  <value>${device.mapping.flipZ ? 'Yes' : 'No'}</value>
+                </div>
+              ` : ''}
+              ${device.mapping.mode === 0 ? `
+                <div class="device-detail">
+                  <label>Row Index</label>
+                  <value>${device.mapping.rowIndex}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Line Pixels</label>
+                  <value>${device.mapping.linePixels}</value>
+                </div>
+              ` : ''}
+              ${device.mapping.mode === 1 ? `
+                <div class="device-detail">
+                  <label>Column Index</label>
+                  <value>${device.mapping.columnIndex}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Line Pixels</label>
+                  <value>${device.mapping.linePixels}</value>
+                </div>
+              ` : ''}
+              <div class="device-detail">
+                <label>Accepted Packets</label>
+                <value>${device.lastFrame.acceptedPackets}</value>
+              </div>
+              <div class="device-detail">
+                <label>Rejected Packets</label>
+                <value>${device.lastFrame.rejectedPackets}</value>
+              </div>
+              <div class="device-detail">
+                <label>Rendered Frames</label>
+                <value>${device.lastFrame.renderedFrames}</value>
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+      } catch (error) {
+        listDiv.innerHTML = `<div class="error">Failed to load devices: ${error.message}</div>`;
+      }
+    }
+
+    async function discoverDevices() {
+      const listDiv = document.getElementById('devicesList');
+      if (listDiv) {
+        listDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Discovering devices...</div>';
+      }
+
+      try {
+        const response = await fetch('/api/discover', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.ok) {
+          await loadDevices();
+          if (listDiv && data.devicesFound > 0) {
+            const successMsg = document.createElement('div');
+            successMsg.className = 'success';
+            successMsg.textContent = `✓ Discovery complete! Found ${data.devicesFound} device(s)`;
+            listDiv.insertBefore(successMsg, listDiv.firstChild);
+            setTimeout(() => successMsg.remove(), 5000);
+          }
+        } else {
+          throw new Error(data.error || 'Discovery failed');
+        }
+      } catch (error) {
+        if (listDiv) {
+          listDiv.innerHTML = `<div class="error">Discovery failed: ${error.message}</div>`;
+        }
+      }
+    }
+
+    async function calculateCoverage() {
+      const width = document.getElementById('coverageWidth').value;
+      const height = document.getElementById('coverageHeight').value;
+      const displayDiv = document.getElementById('coverageDisplay');
+
+      displayDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Calculating coverage...</div>';
+
+      try {
+        const response = await fetch(`/api/coverage?width=${width}&height=${height}`);
+        const data = await response.json();
+
+        document.getElementById('coveragePercent').textContent = data.coveragePercent + '%';
+
+        if (data.devices.length === 0) {
+          displayDiv.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">📊</div>
+              <h3>No Coverage Data</h3>
+              <p>Discover devices first to see coverage information.</p>
+            </div>
+          `;
+          return;
+        }
+
+        displayDiv.innerHTML = `
+          <div class="card">
+            <h4>Coverage Statistics</h4>
+            <div class="info-grid">
+              <div class="info-item">
+                <label>Image Size</label>
+                <value>${data.imageSize.width}×${data.imageSize.height}</value>
+              </div>
+              <div class="info-item">
+                <label>Total Pixels</label>
+                <value>${data.totalPixels}</value>
+              </div>
+              <div class="info-item">
+                <label>Covered Pixels</label>
+                <value>${data.coveredPixels}</value>
+              </div>
+              <div class="info-item">
+                <label>Coverage</label>
+                <value>${data.coveragePercent}%</value>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h4>Device Coverage Details</h4>
+            ${data.devices.map((device, index) => {
+              const serpentineModes = ['none', 'horizontal', 'vertical'];
+              const serpentineText = device.serpentine !== undefined
+                ? ' | <strong>Serpentine:</strong> ' + (serpentineModes[device.serpentine] || 'unknown')
+                : '';
+              return `
+                <div class="device-detail" style="margin-bottom: 15px; background: white; padding: 15px; border-radius: 6px;">
+                  <label style="font-size: 1.1em; margin-bottom: 8px;">${device.hostname || device.ip}</label>
+                  <value>
+                    <strong>Mode:</strong> ${device.mode} |
+                    <strong>Region:</strong> (${device.x},${device.y}) ${device.width}×${device.height} |
+                    <strong>Pixels:</strong> ${device.pixels}${serpentineText}
+                  </value>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+
+      } catch (error) {
+        displayDiv.innerHTML = `<div class="error">Failed to calculate coverage: ${error.message}</div>`;
+      }
+    }
+
+    async function loadCoverageData() {
+      await calculateCoverage();
+    }
+
+    async function sendFrame() {
+      const resultDiv = document.getElementById('frameResult');
+      resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Sending frame...</div>';
+
+      const frameData = {
+        width: parseInt(document.getElementById('frameWidth').value),
+        height: parseInt(document.getElementById('frameHeight').value),
+        rgbType: parseInt(document.getElementById('rgbType').value),
+        pattern: document.getElementById('pattern').value
+      };
+
+      try {
+        const response = await fetch('/api/frame', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(frameData)
+        });
+        const data = await response.json();
+
+        if (data.ok) {
+          resultDiv.innerHTML = `
+            <div class="success">
+              ✓ Frame sent successfully!
+              <br><strong>Frame #${data.frameCounter}</strong> | ${data.chunkCount} chunk(s) | ${data.elapsedMs}ms
+            </div>
+          `;
+        } else {
+          throw new Error(data.error || 'Failed to send frame');
+        }
+
+        setTimeout(() => resultDiv.innerHTML = '', 5000);
+      } catch (error) {
+        resultDiv.innerHTML = `<div class="error">Failed to send frame: ${error.message}</div>`;
+      }
+    }
+
+    async function sendTestFrame() {
+      const controlTab = document.getElementById('control');
+      if (!controlTab.classList.contains('active')) {
+        document.querySelector('.tab:nth-child(4)').click();
+      }
+
+      setTimeout(async () => {
+        document.getElementById('frameWidth').value = 24;
+        document.getElementById('frameHeight').value = 100;
+        document.getElementById('rgbType').value = 0;
+        document.getElementById('pattern').value = 'gradient';
+        await sendFrame();
+      }, 100);
+    }
+
+    async function refreshData() {
+      await loadServerConfig();
+      await loadDevices();
+      if (document.getElementById('coverage').classList.contains('active')) {
+        await calculateCoverage();
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadServerConfig();
+      await loadDevices();
+    });
+
+    setInterval(refreshData, 10000);
+  </script>
 </body>
 </html>
