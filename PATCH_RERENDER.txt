@@ -1,0 +1,78 @@
+# Patch Instructions for Re-render Feature
+
+## Changes to FataMorganaClient.cpp
+
+### 1. Constructor - Add to initialization list (after line 20):
+```cpp
+      _storedFrameSize(0),
+      _storedFrameWidth(0),
+      _storedFrameHeight(0),
+      _storedFrameRgbType(FATAMORGANA_RGB332),
+      _hasStoredFrame(false),
+```
+
+### 2. Constructor - Add after _chunkReceived allocation (after line 34):
+```cpp
+    // Allocate stored frame buffer for re-rendering
+    _storedFrameBuffer = new uint8_t[FATAMORGANA_MAX_FRAME_BYTES];
+    memset(_storedFrameBuffer, 0, FATAMORGANA_MAX_FRAME_BYTES);
+```
+
+### 3. Destructor - Add after delete[] _chunkReceived (after line 42):
+```cpp
+    delete[] _storedFrameBuffer;
+```
+
+### 4. At end of renderCompleteFrame() method - Add before final closing brace:
+```cpp
+    // Store frame for re-rendering
+    if (_activeFrameBytes <= FATAMORGANA_MAX_FRAME_BYTES) {
+        memcpy(_storedFrameBuffer, _frameBuffer, _activeFrameBytes);
+        _storedFrameSize = _activeFrameBytes;
+        _storedFrameWidth = _activeWidth;
+        _storedFrameHeight = _activeHeight;
+        _storedFrameRgbType = _activeRgbType;
+        _hasStoredFrame = true;
+    }
+```
+
+### 5. Add new method at end of file (before closing):
+```cpp
+bool FataMorganaClient::reRenderLastFrame() {
+    if (!_hasStoredFrame) {
+        return false;  // No frame stored yet
+    }
+
+    // Temporarily use stored frame
+    uint8_t* originalBuffer = _frameBuffer;
+    uint16_t originalWidth = _activeWidth;
+    uint16_t originalHeight = _activeHeight;
+    uint8_t originalRgbType = _activeRgbType;
+
+    _frameBuffer = _storedFrameBuffer;
+    _activeWidth = _storedFrameWidth;
+    _activeHeight = _storedFrameHeight;
+    _activeRgbType = _storedFrameRgbType;
+
+    // Render with current mapping/transform settings
+    _renderer.renderFrame(_frameBuffer, _activeWidth, _activeHeight, _activeRgbType, _mapping);
+
+    // Restore original pointers
+    _frameBuffer = originalBuffer;
+    _activeWidth = originalWidth;
+    _activeHeight = originalHeight;
+    _activeRgbType = originalRgbType;
+
+    return true;
+}
+```
+
+## Changes to FataMorganaWebUI.cpp
+
+### In handleSetConfig() method, add after all configuration changes (before send response):
+```cpp
+    // Re-render last frame with new settings for immediate visual feedback
+    if (_client.reRenderLastFrame()) {
+        Serial.println(F("FataMorgana WebUI: Re-rendered with new settings"));
+    }
+```

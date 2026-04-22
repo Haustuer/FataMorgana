@@ -172,6 +172,13 @@ public:
      */
     Adafruit_NeoPixel& getStrip() { return _strip; }
 
+    /**
+     * Re-render the last received frame with current settings
+     * Useful for immediately seeing effect of configuration changes
+     * @return true if frame was re-rendered, false if no frame stored
+     */
+    bool reRenderLastFrame();
+
 private:
     // Hardware
     Adafruit_NeoPixel _strip;
@@ -196,6 +203,14 @@ private:
     uint8_t _receivedChunkCount;
     uint8_t* _frameBuffer;
     bool* _chunkReceived;
+
+    // Stored frame for re-rendering
+    uint8_t* _storedFrameBuffer;      // Copy of last complete frame
+    size_t _storedFrameSize;          // Size of stored frame
+    uint16_t _storedFrameWidth;       // Stored frame width
+    uint16_t _storedFrameHeight;      // Stored frame height
+    uint8_t _storedFrameRgbType;      // Stored frame RGB type
+    bool _hasStoredFrame;             // Do we have a frame stored?
 
     // Statistics
     uint32_t _acceptedPackets;

@@ -237,8 +237,10 @@ void FataMorganaWebUI::handleSetConfig() {
         );
     }
 
-    // Re-render if frame is available
-    // (This would require adding a method to FataMorganaClient to trigger re-render)
+    // Re-render last frame with new settings for immediate visual feedback
+    if (_client.reRenderLastFrame()) {
+        Serial.println(F("FataMorgana WebUI: Re-rendered with new settings"));
+    }
 
     // Broadcast status update
     broadcastStatus();

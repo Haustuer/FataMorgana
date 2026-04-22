@@ -115,6 +115,70 @@ void FataMorganaRenderer::applySerpentine(uint16_t& row,
     }
 }
 
+void FataMorganaRenderer::applyTransforms(uint16_t& row,
+                                          uint16_t& column,
+                                          uint16_t width,
+                                          uint16_t height,
+                                          uint8_t rotation,
+                                          bool flipX,
+                                          bool flipY,
+                                          bool flipZ) const {
+    // Apply diagonal flip (transpose) first
+    if (flipZ) {
+        uint16_t temp = row;
+        row = column;
+        column = temp;
+        // Swap dimensions after transpose
+        uint16_t tempDim = width;
+        width = height;
+        height = tempDim;
+    }
+
+    // Apply rotation
+    switch (rotation) {
+        case 1: // 90° clockwise
+            {
+                uint16_t newRow = column;
+                uint16_t newColumn = height - 1 - row;
+                row = newRow;
+                column = newColumn;
+                // Swap dimensions after 90° rotation
+                uint16_t tempDim = width;
+                width = height;
+                height = tempDim;
+            }
+            break;
+        case 2: // 180°
+            row = height - 1 - row;
+            column = width - 1 - column;
+            break;
+        case 3: // 270° clockwise (90° counter-clockwise)
+            {
+                uint16_t newRow = width - 1 - column;
+                uint16_t newColumn = row;
+                row = newRow;
+                column = newColumn;
+                // Swap dimensions after 270° rotation
+                uint16_t tempDim = width;
+                width = height;
+                height = tempDim;
+            }
+            break;
+        default: // 0° or invalid - no rotation
+            break;
+    }
+
+    // Apply horizontal flip
+    if (flipX) {
+        column = width - 1 - column;
+    }
+
+    // Apply vertical flip
+    if (flipY) {
+        row = height - 1 - row;
+    }
+}
+
 uint32_t FataMorganaRenderer::toNeoPixelColor(const FataMorganaColor& color) const {
     return _strip.Color(color.r, color.g, color.b);
 }
@@ -177,6 +241,10 @@ void FataMorganaRenderer::renderFrame(const uint8_t* frameBuffer,
 
             // Apply serpentine pattern
             applySerpentine(row, column, mapping.rectWidth, mapping.rectHeight, mapping.serpentine);
+
+            // Apply rotation and flip transforms
+            applyTransforms(row, column, mapping.rectWidth, mapping.rectHeight,
+                            mapping.rotation, mapping.flipX, mapping.flipY, mapping.flipZ);
 
             // Calculate source position
             const uint16_t sourceX = mapping.rectX + column;

@@ -18,11 +18,6 @@ FataMorganaClient::FataMorganaClient(uint16_t ledCount, uint8_t ledPin, uint8_t 
       _activeFrameBytes(0),
       _expectedChunkCount(0),
       _receivedChunkCount(0),
-      _storedFrameSize(0),
-      _storedFrameWidth(0),
-      _storedFrameHeight(0),
-      _storedFrameRgbType(FATAMORGANA_RGB332),
-      _hasStoredFrame(false),
       _acceptedPackets(0),
       _rejectedPackets(0),
       _renderedFrames(0),
@@ -37,9 +32,6 @@ FataMorganaClient::FataMorganaClient(uint16_t ledCount, uint8_t ledPin, uint8_t 
     _chunkReceived = new bool[FATAMORGANA_MAX_CHUNKS];
     memset(_frameBuffer, 0, FATAMORGANA_MAX_FRAME_BYTES);
     memset(_chunkReceived, 0, FATAMORGANA_MAX_CHUNKS);
-    // Allocate stored frame buffer for re-rendering
-    _storedFrameBuffer = new uint8_t[FATAMORGANA_MAX_FRAME_BYTES];
-    memset(_storedFrameBuffer, 0, FATAMORGANA_MAX_FRAME_BYTES);
 
     // Set default LED count for line pixels
     _mapping.linePixels = ledCount;
@@ -48,7 +40,6 @@ FataMorganaClient::FataMorganaClient(uint16_t ledCount, uint8_t ledPin, uint8_t 
 FataMorganaClient::~FataMorganaClient() {
     delete[] _frameBuffer;
     delete[] _chunkReceived;
-    delete[] _storedFrameBuffer;
 }
 
 bool FataMorganaClient::begin() {
@@ -335,16 +326,6 @@ void FataMorganaClient::renderCompleteFrame() {
 
     _renderedFrames++;
     _lastRenderMillis = millis();
-    // Store frame for re-rendering
-    if (_activeFrameBytes <= FATAMORGANA_MAX_FRAME_BYTES) {
-        memcpy(_storedFrameBuffer, _frameBuffer, _activeFrameBytes);
-        _storedFrameSize = _activeFrameBytes;
-        _storedFrameWidth = _activeWidth;
-        _storedFrameHeight = _activeHeight;
-        _storedFrameRgbType = _activeRgbType;
-        _hasStoredFrame = true;
-    }
-
     _frameInProgress = false;
 }
 
@@ -396,32 +377,4 @@ void FataMorganaClient::setFlip(bool x, bool y, bool z) {
 
 void FataMorganaClient::setBrightness(uint8_t brightness) {
     _strip.setBrightness(brightness);
-}
-
-bool FataMorganaClient::reRenderLastFrame() {
-    if (!_hasStoredFrame) {
-        return false;  // No frame stored yet
-    }
-
-    // Temporarily use stored frame
-    uint8_t* originalBuffer = _frameBuffer;
-    uint16_t originalWidth = _activeWidth;
-    uint16_t originalHeight = _activeHeight;
-    uint8_t originalRgbType = _activeRgbType;
-
-    _frameBuffer = _storedFrameBuffer;
-    _activeWidth = _storedFrameWidth;
-    _activeHeight = _storedFrameHeight;
-    _activeRgbType = _storedFrameRgbType;
-
-    // Render with current mapping/transform settings
-    _renderer.renderFrame(_frameBuffer, _activeWidth, _activeHeight, _activeRgbType, _mapping);
-
-    // Restore original pointers
-    _frameBuffer = originalBuffer;
-    _activeWidth = originalWidth;
-    _activeHeight = originalHeight;
-    _activeRgbType = originalRgbType;
-
-    return true;
 }

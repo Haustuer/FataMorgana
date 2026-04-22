@@ -113,6 +113,26 @@ private:
                          uint8_t serpentine) const;
 
     /**
+     * Apply rotation and flip transformations
+     * @param row Row index
+     * @param column Column index
+     * @param width Rectangle width
+     * @param height Rectangle height
+     * @param rotation Rotation (0=0°, 1=90°, 2=180°, 3=270°)
+     * @param flipX Horizontal flip
+     * @param flipY Vertical flip
+     * @param flipZ Diagonal flip (transpose)
+     */
+    void applyTransforms(uint16_t& row,
+                         uint16_t& column,
+                         uint16_t width,
+                         uint16_t height,
+                         uint8_t rotation,
+                         bool flipX,
+                         bool flipY,
+                         bool flipZ) const;
+
+    /**
      * Convert FataMorganaColor to NeoPixel format
      * @param color RGB color
      * @return 32-bit NeoPixel color value
