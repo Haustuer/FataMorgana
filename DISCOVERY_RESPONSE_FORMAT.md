@@ -361,25 +361,6 @@ void sendBinaryDiscoveryResponse(IPAddress serverIP, uint16_t serverPort) {
 - **All other multi-byte fields:** Little-endian (for ESP efficiency)
 - **Magic bytes:** Big-endian (ASCII "FATA")
 
-## Migration Notes
-
-### Old JSON Format (300+ bytes)
-```json
-{
-  "protocol": "FataMorgana",
-  "version": 1,
-  "device": { ... },
-  "hardware": { ... },
-  "mapping": { ... },
-  "status": { ... }
-}
-```
-
-### New Binary Format (64 bytes)
-- 78% size reduction
-- Faster parsing on ESP8266
-- No ArduinoJson library dependency
-- Fixed-size simplifies buffer management
 
 ## Testing
 
