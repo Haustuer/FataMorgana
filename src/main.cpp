@@ -802,7 +802,8 @@ void startWebServer() {
 
   const String localIp = WiFi.localIP().toString();
   Serial.printf("HTTP status page on %s:%u\n", localIp.c_str(), HTTP_PORT);
-  Serial.printf("WebSocket server on ws://%s:81/ws\n", localIp.c_str());
+ Serial.printf("WebSocket server on ws://%s:%u/ws\n", localIp.c_str(), WS_PORT);
+
 }
 
 bool beginFrame(uint8_t frameCounter, uint8_t rgbType, uint16_t width, uint16_t height) {
