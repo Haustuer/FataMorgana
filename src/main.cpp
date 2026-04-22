@@ -13,7 +13,7 @@ constexpr uint16_t LED_COUNT = 256;
 constexpr uint16_t MULTICAST_PORT = 7777;
 constexpr uint16_t RESPONSE_PORT = 7778;
 constexpr uint16_t HTTP_PORT = 80;
-
+constexpr uint16_t WS_PORT = 81;
 // Multicast group address: 239.255.42.1
 const IPAddress MULTICAST_ADDR(239, 255, 42, 1);
 
@@ -70,7 +70,7 @@ struct RgbColor {
 
 WiFiUDP udp;
 ESP8266WebServer webServer(HTTP_PORT);
-WebSocketsServer wsServer(81);
+WebSocketsServer wsServer(WS_PORT);
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 WiFiManager wm;
 
