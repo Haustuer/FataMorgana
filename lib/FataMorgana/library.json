@@ -1,0 +1,59 @@
+{
+  "name": "FataMorgana",
+  "version": "1.0.0",
+  "description": "A high-performance UDP multicast protocol library for distributed LED display systems. Control multiple ESP8266/ESP32 devices with synchronized image frames, advanced mapping modes, and real-time transform capabilities.",
+  "keywords": [
+    "LED",
+    "NeoPixel",
+    "WS2812",
+    "UDP",
+    "multicast",
+    "display",
+    "distributed",
+    "network",
+    "lighting",
+    "effects"
+  ],
+  "authors": [
+    {
+      "name": "Your Name",
+      "email": "your.email@example.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourname/FataMorgana.git"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/hauke/FataMorgana",
+  "frameworks": ["arduino", "espidf"],
+  "platforms": ["espressif8266", "espressif32"],
+  "dependencies": {
+    "adafruit/Adafruit NeoPixel": "^1.12.3"
+  },
+  "export": {
+    "include": [
+      "src",
+      "examples",
+      "README.md",
+      "LICENSE"
+    ]
+  },
+  "examples": [
+    {
+      "name": "BasicClient",
+      "base": "examples/BasicClient",
+      "files": ["BasicClient.ino"]
+    },
+    {
+      "name": "CustomMapping",
+      "base": "examples/CustomMapping",
+      "files": ["CustomMapping.ino"]
+    },
+    {
+      "name": "RectangleWithTransforms",
+      "base": "examples/RectangleWithTransforms",
+      "files": ["RectangleWithTransforms.ino"]
+    }
+  ]
+}
