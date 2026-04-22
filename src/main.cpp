@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <WebSocketsServer.h>
 #include <WiFiUdp.h>
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
@@ -69,6 +70,7 @@ struct RgbColor {
 
 WiFiUDP udp;
 ESP8266WebServer webServer(HTTP_PORT);
+WebSocketsServer wsServer(81);
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 WiFiManager wm;
 
@@ -95,6 +97,7 @@ uint16_t lastSeenWidth = 0;
 uint16_t lastSeenHeight = 0;
 unsigned long lastPacketMillis = 0;
 unsigned long lastRenderMillis = 0;
+unsigned long lastStatusBroadcast = 0;
 uint32_t acceptedPackets = 0;
 uint32_t rejectedPackets = 0;
 uint32_t renderedFrames = 0;
@@ -539,6 +542,9 @@ String buildConfigJson() {
   return json;
 }
 
+// Forward declaration for WebSocket broadcast
+void broadcastStatus();
+
 void sendDiscoveryResponse(IPAddress serverIP, uint16_t serverPort) {
   uint8_t response[64];
   memset(response, 0, sizeof(response));
@@ -738,9 +744,50 @@ void handleWebSetConfig() {
   if (!frameInProgress && activeWidth > 0 && activeHeight > 0) {
     renderFrame();
     lastRenderMillis = millis();
+    renderedFrames++;
+
+    // Broadcast updated status immediately via WebSocket
+    broadcastStatus();
   }
 
   webServer.send(200, "application/json", buildConfigJson());
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.printf("WebSocket [%u] disconnected\n", num);
+      break;
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = wsServer.remoteIP(num);
+        Serial.printf("WebSocket [%u] connected from %s\n", num, ip.toString().c_str());
+        // Send initial status on connect
+        String statusJson = buildStatusJson();
+        wsServer.sendTXT(num, statusJson);
+      }
+      break;
+    case WStype_TEXT:
+      Serial.printf("WebSocket [%u] received text: %s\n", num, payload);
+      break;
+    case WStype_BIN:
+    case WStype_FRAGMENT_TEXT_START:
+    case WStype_FRAGMENT_BIN_START:
+    case WStype_FRAGMENT:
+    case WStype_FRAGMENT_FIN:
+    case WStype_PING:
+    case WStype_PONG:
+    default:
+      // Ignore other WebSocket event types
+      break;
+  }
+}
+
+void broadcastStatus() {
+  if (wsServer.connectedClients() > 0) {
+    String statusJson = buildStatusJson();
+    wsServer.broadcastTXT(statusJson);
+  }
 }
 
 void startWebServer() {
@@ -750,8 +797,12 @@ void startWebServer() {
   webServer.on("/config", HTTP_POST, handleWebSetConfig);
   webServer.begin();
 
+  wsServer.begin();
+  wsServer.onEvent(webSocketEvent);
+
   const String localIp = WiFi.localIP().toString();
   Serial.printf("HTTP status page on %s:%u\n", localIp.c_str(), HTTP_PORT);
+  Serial.printf("WebSocket server on ws://%s:81/ws\n", localIp.c_str());
 }
 
 bool beginFrame(uint8_t frameCounter, uint8_t rgbType, uint16_t width, uint16_t height) {
@@ -934,6 +985,14 @@ void setup() {
 void loop() {
   wm.process();
   webServer.handleClient();
+  wsServer.loop();
+
+  // Broadcast status updates every 200ms if there are connected clients
+  unsigned long now = millis();
+  if (wsServer.connectedClients() > 0 && (now - lastStatusBroadcast >= 200)) {
+    broadcastStatus();
+    lastStatusBroadcast = now;
+  }
 
   const int packetSize = udp.parsePacket();
   if (packetSize <= 0) {

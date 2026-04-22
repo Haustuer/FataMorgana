@@ -103,8 +103,20 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
       cursor: pointer;
     }
 
+    button:hover {
+      opacity: 0.9;
+    }
+
     .hidden {
       display: none;
+    }
+
+    h3 {
+      margin: 16px 0 8px 0;
+      color: #93c5fd;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
     #saveMessage {
@@ -177,17 +189,50 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
             Rectangle Height
             <input id="rectHeight" type="number" min="1" step="1">
           </label>
+
+          <label id="serpentineField">
+            Serpentine Mode
+            <select id="serpentine">
+              <option value="0">None</option>
+              <option value="1">Horizontal (zigzag L-R)</option>
+              <option value="2">Vertical (zigzag U-D)</option>
+            </select>
+          </label>
+
+          <label id="rotationField">
+            Rotation
+            <select id="rotation">
+              <option value="0">0° (No rotation)</option>
+              <option value="1">90° (Clockwise)</option>
+              <option value="2">180°</option>
+              <option value="3">270° (Counter-CW)</option>
+            </select>
+          </label>
         </div>
 
-        <label class="checkbox" id="serpentineField">
-          <input id="serpentine" type="checkbox">
-          <span>Serpentine rectangle layout</span>
-        </label>
+        <h3 id="transformHeader" class="hidden">Transform Options</h3>
+        <div class="form-grid" id="transformFields" class="hidden">
+          <label class="checkbox">
+            <input id="flipX" type="checkbox">
+            <span>Flip X (Horizontal mirror)</span>
+          </label>
 
-        <button type="submit">Save Mapping</button>
+          <label class="checkbox">
+            <input id="flipY" type="checkbox">
+            <span>Flip Y (Vertical mirror)</span>
+          </label>
+
+          <label class="checkbox">
+            <input id="flipZ" type="checkbox">
+            <span>Flip Z (Transpose/Diagonal)</span>
+          </label>
+        </div>
+
+        <button type="submit">Apply Now</button>
       </form>
 
       <div id="saveMessage">Loading current config...</div>
+      <p style="color: #93c5fd; font-size: 0.85rem; margin-top: 8px;">💡 Changes apply automatically as you adjust settings</p>
     </section>
 
     <section class="card">
@@ -195,6 +240,7 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
       <div class="grid">
         <div><div class="label">IP Address</div><div class="value" id="ip">-</div></div>
         <div><div class="label">WiFi Status</div><div class="value" id="wifiStatus">-</div></div>
+        <div><div class="label">WebSocket</div><div class="value" id="wsStatus">Connecting...</div></div>
         <div><div class="label">UDP Port</div><div class="value" id="udpPort">-</div></div>
         <div><div class="label">LED Count</div><div class="value" id="ledCount">-</div></div>
         <div><div class="label">Mapping</div><div class="value" id="mapping">-</div></div>
@@ -223,7 +269,14 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
     const rectWidthField = document.getElementById('rectWidth');
     const rectHeightField = document.getElementById('rectHeight');
     const serpentineField = document.getElementById('serpentine');
+    const rotationField = document.getElementById('rotation');
+    const flipXField = document.getElementById('flipX');
+    const flipYField = document.getElementById('flipY');
+    const flipZField = document.getElementById('flipZ');
     const saveMessage = document.getElementById('saveMessage');
+
+    let ws = null;
+    let reconnectTimer = null;
 
     function setText(id, value) {
       document.getElementById(id).textContent = value;
@@ -244,6 +297,9 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
       document.getElementById('rectWidthField').classList.toggle('hidden', !rectangleMode);
       document.getElementById('rectHeightField').classList.toggle('hidden', !rectangleMode);
       document.getElementById('serpentineField').classList.toggle('hidden', !rectangleMode);
+      document.getElementById('rotationField').classList.toggle('hidden', !rectangleMode);
+      document.getElementById('transformHeader').classList.toggle('hidden', !rectangleMode);
+      document.getElementById('transformFields').classList.toggle('hidden', !rectangleMode);
       sampleModeField.disabled = !lineMode;
     }
 
@@ -258,7 +314,11 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
       rectYField.value = config.rectY;
       rectWidthField.value = config.rectWidth;
       rectHeightField.value = config.rectHeight;
-      serpentineField.checked = Boolean(config.serpentine);
+      serpentineField.value = config.serpentine || 0;
+      rotationField.value = config.rotation || 0;
+      flipXField.checked = Boolean(config.flipX);
+      flipYField.checked = Boolean(config.flipY);
+      flipZField.checked = Boolean(config.flipZ);
       updateModeVisibility();
     }
 
@@ -293,11 +353,10 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
       }
     }
 
-    modeField.addEventListener('change', updateModeVisibility);
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      saveMessage.textContent = 'Saving config...';
+    async function saveConfig(showMessage = true) {
+      if (showMessage) {
+        saveMessage.textContent = 'Saving config...';
+      }
 
       const payload = {
         mode: Number(modeField.value),
@@ -309,7 +368,11 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
         rectY: Number(rectYField.value || 0),
         rectWidth: Number(rectWidthField.value || 1),
         rectHeight: Number(rectHeightField.value || 1),
-        serpentine: serpentineField.checked
+        serpentine: Number(serpentineField.value || 0),
+        rotation: Number(rotationField.value || 0),
+        flipX: flipXField.checked,
+        flipY: flipYField.checked,
+        flipZ: flipZField.checked
       };
 
       try {
@@ -326,14 +389,136 @@ static const char kStatusPageHtml[] PROGMEM = R"HTML(
         const config = await response.json();
         applyConfig(config);
         await refreshStatus();
-        saveMessage.textContent = 'Config saved.';
+        if (showMessage) {
+          saveMessage.textContent = 'Config saved.';
+        }
       } catch (error) {
-        saveMessage.textContent = error.message;
+        if (showMessage) {
+          saveMessage.textContent = error.message;
+        }
       }
+    }
+
+    let autoSaveTimer = null;
+    function autoSave() {
+      // Show "updating..." message
+      saveMessage.textContent = 'Auto-updating...';
+
+      // Debounce: wait 300ms after last change before saving
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer);
+      }
+      autoSaveTimer = setTimeout(async () => {
+        await saveConfig(false);
+        saveMessage.textContent = 'Updated.';
+        // Clear message after 2 seconds
+        setTimeout(() => {
+          if (saveMessage.textContent === 'Updated.') {
+            saveMessage.textContent = '';
+          }
+        }, 2000);
+      }, 300);
+    }
+
+    modeField.addEventListener('change', updateModeVisibility);
+
+    // Auto-save on any config change
+    modeField.addEventListener('change', autoSave);
+    sampleModeField.addEventListener('change', autoSave);
+    rowIndexField.addEventListener('input', autoSave);
+    columnIndexField.addEventListener('input', autoSave);
+    linePixelsField.addEventListener('input', autoSave);
+    rectXField.addEventListener('input', autoSave);
+    rectYField.addEventListener('input', autoSave);
+    rectWidthField.addEventListener('input', autoSave);
+    rectHeightField.addEventListener('input', autoSave);
+    serpentineField.addEventListener('change', autoSave);
+    rotationField.addEventListener('change', autoSave);
+    flipXField.addEventListener('change', autoSave);
+    flipYField.addEventListener('change', autoSave);
+    flipZField.addEventListener('change', autoSave);
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await saveConfig(true);
     });
 
+    function connectWebSocket() {
+      if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+        return;
+      }
+
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${location.host}/ws`;
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log('WebSocket connected');
+          setText('wsStatus', '🟢 Connected');
+          saveMessage.textContent = 'Live updates enabled';
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const status = JSON.parse(event.data);
+
+            setText('ip', status.ip);
+            setText('wifiStatus', status.wifiStatus);
+            setText('udpPort', status.multicastPort);
+            setText('ledCount', status.ledCount);
+            setText('mapping', status.mapping);
+            setText('mappingMode', status.mappingMode);
+            setText('sampleModeStatus', status.sampleMode);
+            setText('lastFrame', status.lastFrame);
+            setText('imageSize', status.imageSize);
+            setText('rgbType', status.rgbType);
+            setText('chunks', status.chunks);
+            setText('packets', status.packets);
+            setText('renderedFrames', status.renderedFrames);
+            setText('lastRender', status.lastRender);
+          } catch (error) {
+            console.error('WebSocket message error:', error);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          setText('wsStatus', '🔴 Error');
+        };
+
+        ws.onclose = () => {
+          console.log('WebSocket disconnected');
+          setText('wsStatus', '🟡 Reconnecting...');
+          ws = null;
+          // Attempt to reconnect after 2 seconds
+          if (!reconnectTimer) {
+            reconnectTimer = setTimeout(connectWebSocket, 2000);
+          }
+        };
+      } catch (error) {
+        console.error('Failed to create WebSocket:', error);
+        setText('wsStatus', '🔴 Failed');
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(connectWebSocket, 2000);
+        }
+      }
+    }
+
     loadConfig().then(refreshStatus);
-    setInterval(refreshStatus, 1000);
+    connectWebSocket();
+
+    // Fallback polling in case WebSocket is not available
+    setInterval(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        refreshStatus();
+      }
+    }, 2000);
   </script>
 </body>
 </html>
