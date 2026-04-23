@@ -2,6 +2,7 @@
   "dependencies": {
     "dgram": "^1.0.1",
     "express": "^5.2.1",
+    "sharp": "^0.33.5",
     "ws": "^8.19.0"
   }
 }

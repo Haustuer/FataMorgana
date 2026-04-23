@@ -2,6 +2,7 @@ const express = require("express");
 const dgram = require("dgram");
 const path = require("path");
 const os = require("os");
+const sharp = require("sharp");
 
 const app = express();
 
@@ -59,12 +60,20 @@ let lastSendResult = {
   packetBytes: [],
 };
 
+// Store last frame for visualizer
+let lastFrameData = {
+  width: 0,
+  height: 0,
+  rgbType: RGB332,
+  pixels: null, // Buffer of pixel data
+};
+
 // Discovery state
 const discoveredDevices = new Map(); // key: IP address, value: device info
 let lastDiscoveryTime = null;
 let discoveryInProgress = false;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, "gradient-frame-public")));
 
 // Get server IP address
@@ -520,6 +529,14 @@ async function sendFrame({ width, height, rgbType, pattern = PATTERN_GRADIENT, p
     elapsedMs: elapsed,
   };
 
+  // Store frame data for visualizer
+  lastFrameData = {
+    width,
+    height,
+    rgbType,
+    pixels: payload,
+  };
+
   log(`Frame #${frameCounter} sent`, { elapsedMs: elapsed });
 
   return lastSendResult;
@@ -707,6 +724,210 @@ app.post("/api/frame", async (req, res) => {
   }
 });
 
+app.post("/api/frame/image", async (req, res) => {
+  try {
+    if (!req.body) {
+      res.status(400).json({ ok: false, error: 'No request body received' });
+      return;
+    }
+
+    const { image, rgbType = RGB332, targetWidth, targetHeight } = req.body;
+
+    if (!image) {
+      res.status(400).json({ ok: false, error: 'No image data provided in request body' });
+      return;
+    }
+
+    if (typeof image !== 'string') {
+      res.status(400).json({ ok: false, error: 'Image data must be a base64 string' });
+      return;
+    }
+
+    if (!image.startsWith('data:image/')) {
+      res.status(400).json({ ok: false, error: 'Image must be in data URL format (data:image/...)' });
+      return;
+    }
+
+    // Parse base64 image data
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+
+    if (base64Data.length === 0) {
+      res.status(400).json({ ok: false, error: 'Image data is empty' });
+      return;
+    }
+
+    log("Processing image upload", {
+      dataUrlLength: image.length,
+      base64Length: base64Data.length,
+      targetWidth,
+      targetHeight,
+      rgbType: rgbTypeName(rgbType)
+    });
+
+    let buffer;
+    try {
+      buffer = Buffer.from(base64Data, 'base64');
+    } catch (error) {
+      res.status(400).json({ ok: false, error: 'Failed to decode base64 image data: ' + error.message });
+      return;
+    }
+
+    // Load image with sharp
+    let sharpImage;
+    try {
+      sharpImage = sharp(buffer);
+    } catch (error) {
+      res.status(400).json({ ok: false, error: 'Failed to load image: ' + error.message });
+      return;
+    }
+
+    // Resize if target dimensions provided
+    if (targetWidth && targetHeight) {
+      try {
+        sharpImage = sharpImage.resize(targetWidth, targetHeight, {
+          fit: 'fill',
+          kernel: 'lanczos3'  // High-quality downsampling
+        });
+      } catch (error) {
+        res.status(400).json({ ok: false, error: 'Failed to resize image: ' + error.message });
+        return;
+      }
+    }
+
+    let metadata;
+    try {
+      metadata = await sharpImage.metadata();
+    } catch (error) {
+      res.status(400).json({ ok: false, error: 'Failed to read image metadata: ' + error.message });
+      return;
+    }
+
+    const width = targetWidth || metadata.width;
+    const height = targetHeight || metadata.height;
+
+    const payloadBytes = width * height * bytesPerPixel(rgbType);
+
+    if (payloadBytes > MAX_FRAME_BYTES) {
+      res.status(400).json({
+        ok: false,
+        error: `Image too large for firmware buffer (${payloadBytes} > ${MAX_FRAME_BYTES} bytes). Resize to max ${Math.floor(MAX_FRAME_BYTES / bytesPerPixel(rgbType))} pixels.`,
+        payloadBytes,
+        maxFrameBytes: MAX_FRAME_BYTES,
+      });
+      return;
+    }
+
+    // Get raw RGBA pixel data
+    let rgbaBuffer;
+    try {
+      const result = await sharpImage
+        .raw()
+        .ensureAlpha()
+        .toBuffer({ resolveWithObject: true });
+      rgbaBuffer = result.data;
+    } catch (error) {
+      res.status(500).json({ ok: false, error: 'Failed to extract pixel data: ' + error.message });
+      return;
+    }
+
+    // Convert RGBA to target format
+    const pixelBuffer = Buffer.alloc(payloadBytes);
+    let bufferIndex = 0;
+
+    for (let i = 0; i < rgbaBuffer.length; i += 4) {
+      const r = rgbaBuffer[i];
+      const g = rgbaBuffer[i + 1];
+      const b = rgbaBuffer[i + 2];
+      // const a = rgbaBuffer[i + 3]; // alpha channel (unused for now)
+
+      if (rgbType === RGB332) {
+        // 3 bits red, 3 bits green, 2 bits blue
+        const r3 = Math.floor((r / 255) * 7);
+        const g3 = Math.floor((g / 255) * 7);
+        const b2 = Math.floor((b / 255) * 3);
+        pixelBuffer[bufferIndex++] = (r3 << 5) | (g3 << 2) | b2;
+      } else {
+        // RGB565: 5 bits red, 6 bits green, 5 bits blue (little-endian)
+        const r5 = Math.floor((r / 255) * 31);
+        const g6 = Math.floor((g / 255) * 63);
+        const b5 = Math.floor((b / 255) * 31);
+        const rgb565 = (r5 << 11) | (g6 << 5) | b5;
+        pixelBuffer[bufferIndex++] = rgb565 & 0xFF; // Low byte
+        pixelBuffer[bufferIndex++] = (rgb565 >> 8) & 0xFF; // High byte
+      }
+    }
+
+    // Send the frame
+    const startTime = Date.now();
+    const chunkCount = Math.ceil(payloadBytes / MAX_PAYLOAD_SIZE);
+    const frameCounter = nextFrameCounter++;
+
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+      const offset = chunkIndex * MAX_PAYLOAD_SIZE;
+      const remaining = payloadBytes - offset;
+      const chunkSize = remaining < MAX_PAYLOAD_SIZE ? remaining : MAX_PAYLOAD_SIZE;
+      const payload = pixelBuffer.subarray(offset, offset + chunkSize);
+
+      const frameType = chunkIndex === 0 ? FRAME_TYPE_IMAGE_START : FRAME_TYPE_IMAGE_CONTINUATION;
+      const header = Buffer.alloc(HEADER_SIZE);
+      header[0] = frameType;
+      header[1] = frameCounter;
+      header[2] = chunkIndex;
+      header[3] = rgbType;
+      header.writeUInt16LE(width, 4);
+      header.writeUInt16LE(height, 6);
+
+      const packet = Buffer.concat([header, payload]);
+      await sendUdpPacket(packet);
+
+      if (chunkIndex < chunkCount - 1 && INTER_PACKET_DELAY_MS > 0) {
+        await delay(INTER_PACKET_DELAY_MS);
+      }
+    }
+
+    const elapsedMs = Date.now() - startTime;
+
+    // Store frame data for visualizer
+    lastFrameData = {
+      width,
+      height,
+      rgbType,
+      pixels: pixelBuffer,
+    };
+
+    log("Image frame sent", {
+      frameCounter,
+      width,
+      height,
+      resized: targetWidth && targetHeight ? `${targetWidth}×${targetHeight}` : 'no',
+      rgbType: rgbTypeName(rgbType),
+      chunkCount,
+      payloadBytes,
+      elapsedMs
+    });
+
+    res.json({
+      ok: true,
+      frameCounter,
+      width,
+      height,
+      rgbType,
+      chunkCount,
+      payloadBytes,
+      elapsedMs
+    });
+
+  } catch (error) {
+    log("Error sending image", {
+      error: error.message,
+      stack: error.stack,
+      hasBody: !!req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : []
+    });
+    res.status(500).json({ ok: false, error: error.message || 'Unknown error processing image' });
+  }
+});
+
 app.post("/api/discover", async (_req, res) => {
   try {
     const result = await sendDiscoveryRequest();
@@ -737,6 +958,25 @@ app.get("/api/devices", (_req, res) => {
     lastDiscovery: lastDiscoveryTime,
     deviceCount: devices.length,
     devices
+  });
+});
+
+app.get("/api/frame/last", (_req, res) => {
+  if (!lastFrameData.pixels) {
+    res.json({
+      ok: false,
+      message: 'No frame data available'
+    });
+    return;
+  }
+
+  // Convert pixel buffer to base64 for transmission
+  res.json({
+    ok: true,
+    width: lastFrameData.width,
+    height: lastFrameData.height,
+    rgbType: lastFrameData.rgbType,
+    pixels: lastFrameData.pixels.toString('base64')
   });
 });
 
