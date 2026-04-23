@@ -103,8 +103,8 @@ receiveSocket.bind(RESPONSE_PORT, () => {
 
 // Parse binary discovery response
 function parseDiscoveryResponse(buffer) {
-  if (buffer.length !== 64) {
-    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 64)`);
+  if (buffer.length !== 68) {
+    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 68)`);
   }
 
   // Check magic bytes "FATA" (0x46415441)
@@ -160,6 +160,9 @@ function parseDiscoveryResponse(buffer) {
   const lastFrameWidth = buffer.readUInt16LE(60);
   const lastFrameHeight = buffer.readUInt16LE(62);
 
+  // Gamma correction (float, little-endian)
+  const gamma = buffer.readFloatLE(64);
+
   const modeNames = ['row', 'column', 'rectangle'];
   const sampleModeNames = ['pixel', 'interpolated'];
   const serpentineModeNames = ['none', 'horizontal', 'vertical'];
@@ -199,7 +202,8 @@ function parseDiscoveryResponse(buffer) {
       rotation,
       flipX,
       flipY,
-      flipZ
+      flipZ,
+      gamma
     },
     status: {
       lastFrameCounter: 0,

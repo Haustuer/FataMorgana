@@ -2,15 +2,15 @@
 
 /**
  * Test script to verify binary discovery response parsing
- * Creates a mock 64-byte discovery response and tests parsing
+ * Creates a mock 68-byte discovery response and tests parsing
  */
 
 const dgram = require('dgram');
 
 // Simulate the binary parsing function from gradientFrameServer.js
 function parseDiscoveryResponse(buffer) {
-  if (buffer.length !== 64) {
-    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 64)`);
+  if (buffer.length !== 68) {
+    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 68)`);
   }
 
   // Check magic bytes "FATA" (0x46415441)
@@ -59,6 +59,9 @@ function parseDiscoveryResponse(buffer) {
   const lastFrameWidth = buffer.readUInt16LE(60);
   const lastFrameHeight = buffer.readUInt16LE(62);
 
+  // Gamma correction (float, little-endian)
+  const gamma = buffer.readFloatLE(64);
+
   const modeNames = ['row', 'column', 'rectangle'];
   const sampleModeNames = ['pixel', 'interpolated'];
 
@@ -92,7 +95,8 @@ function parseDiscoveryResponse(buffer) {
       rectY,
       rectWidth,
       rectHeight,
-      serpentine
+      serpentine,
+      gamma
     },
     status: {
       lastFrameCounter: 0,
@@ -109,7 +113,7 @@ function parseDiscoveryResponse(buffer) {
 
 // Create a mock discovery response packet
 function createMockResponse() {
-  const response = Buffer.alloc(64);
+  const response = Buffer.alloc(68);
 
   // Magic bytes "FATA"
   response[0] = 0x46; // 'F'
@@ -184,6 +188,9 @@ function createMockResponse() {
   response.writeUInt16LE(24, 60);
   response.writeUInt16LE(100, 62);
 
+  // Gamma correction: 2.2 (float, little-endian)
+  response.writeFloatLE(2.2, 64);
+
   return response;
 }
 
@@ -192,7 +199,7 @@ console.log('║    Binary Discovery Response Format Test              ║');
 console.log('╚════════════════════════════════════════════════════════╝\n');
 
 try {
-  console.log('Creating mock 64-byte discovery response...');
+  console.log('Creating mock 68-byte discovery response...');
   const mockPacket = createMockResponse();
 
   console.log('\nHex dump:');
@@ -232,6 +239,7 @@ try {
     console.log(`  Rectangle:    (${parsed.mapping.rectX},${parsed.mapping.rectY}) ${parsed.mapping.rectWidth}×${parsed.mapping.rectHeight}`);
     console.log(`  Serpentine:   ${parsed.mapping.serpentine ? 'Yes' : 'No'}`);
   }
+  console.log(`  Gamma:        ${parsed.mapping.gamma.toFixed(2)}`);
 
   console.log('\nStatistics:');
   console.log(`  Accepted Packets:  ${parsed.status.acceptedPackets}`);
@@ -240,8 +248,8 @@ try {
   console.log(`  Last Frame:        ${parsed.status.lastFrameWidth}×${parsed.status.lastFrameHeight}`);
 
   console.log('\n✅ All tests passed!');
-  console.log('\nPacket size: 64 bytes (vs ~300 bytes JSON)');
-  console.log('Size reduction: 78%\n');
+  console.log('\nPacket size: 68 bytes (vs ~300 bytes JSON)');
+  console.log('Size reduction: 77%\n');
 
 } catch (error) {
   console.error('\n❌ Test failed:', error.message);
