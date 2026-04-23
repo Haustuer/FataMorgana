@@ -6,13 +6,20 @@ This directory contains two server implementations for the FataMorgana LED displ
 
 ### 1. gradientFrameServer.js
 
-**Purpose:** UDP frame broadcaster implementing the FataMorgana protocol
+**Purpose:** UDP multicast frame broadcaster with web control panel
 
 **Features:**
-- Sends image frames via UDP broadcast to ESP8266 devices
+- **Web Control Panel** - Browser-based interface for device management
+- **UDP Multicast** - Sends image frames to all devices (239.255.42.1:7777)
+- **Device Discovery** - Auto-discover devices on network
+- **Device Identification** - Flash specific devices to locate them physically
+- **Image Upload** - Send custom images with auto-resizing
+- **Test Patterns** - Gradient, solid, checkerboard, rainbow
+- **Rainbow Animation** - Animated rainbow with configurable FPS (1-80), resolution, and encoding
+- **Live Visualizer** - See frames with device regions overlaid
+- **Coverage Map** - Calculate pixel coverage across devices
 - Implements 8-byte header protocol (see PROJECT_IDEA.md)
 - Supports RGB332 and RGB565 pixel formats
-- Multiple test patterns: gradient, solid, checkerboard, rainbow
 - Automatic frame chunking for large images
 - Configurable inter-packet delay to prevent ESP WiFi buffer overflow
 
@@ -25,26 +32,49 @@ npm install
 node gradientFrameServer.js
 
 # With custom configuration
-HTTP_PORT=3001 UDP_PORT=7777 BROADCAST_ADDR=192.168.1.255 node gradientFrameServer.js
+HTTP_PORT=3001 MULTICAST_ADDR=239.255.42.1 MULTICAST_PORT=7777 node gradientFrameServer.js
 
 # Enable verbose logging
 VERBOSE=true node gradientFrameServer.js
 ```
 
+**Web Interface:**
+Open `http://localhost:3001` for the control panel
+
 **API Endpoints:**
 - `GET /api/config` - Get server configuration and status
-- `POST /api/frame` - Send a frame (see PROTOCOL_IMPLEMENTATION.md)
+- `POST /api/frame` - Send test pattern frame
+- `POST /api/frame/image` - Send custom image (base64 data URL)
+- `POST /api/discover` - Discover all devices on network
+- `POST /api/identify` - Identify specific device (flash LEDs)
+- `GET /api/devices` - List all discovered devices
+- `GET /api/coverage` - Calculate coverage for image dimensions
+- `GET /api/frame/last` - Get last sent frame data
 
 **Testing:**
 ```bash
-# Quick test
-node test-protocol.js gradient 16 16 0
+# Discover devices
+curl -X POST http://localhost:3001/api/discover
 
-# Solid red frame
-node test-protocol.js solid 24 100 0 255 0 0
+# Send gradient pattern
+curl -X POST http://localhost:3001/api/frame \
+  -H "Content-Type: application/json" \
+  -d '{"width":24,"height":100,"pattern":"gradient","rgbType":0}'
 
-# Large RGB565 rainbow
-node test-protocol.js rainbow 48 48 1
+# Identify device by IP
+curl -X POST http://localhost:3001/api/identify \
+  -H "Content-Type: application/json" \
+  -d '{"ip":"192.168.1.100","flashCount":3}'
+
+# Identify device by chip ID
+curl -X POST http://localhost:3001/api/identify \
+  -H "Content-Type: application/json" \
+  -d '{"chipId":"FCB7D3","flashCount":5}'
+
+# Send custom image
+curl -X POST http://localhost:3001/api/frame/image \
+  -H "Content-Type: application/json" \
+  -d '{"image":"data:image/png;base64,...","targetWidth":24,"targetHeight":100,"rgbType":0}'
 ```
 
 ### 2. server.js
@@ -92,10 +122,13 @@ node test-protocol.js gradient 24 100 0
 ### Environment Variables
 
 **gradientFrameServer.js:**
-- `HTTP_PORT` (default: 3001) - HTTP API port
-- `UDP_PORT` (default: 7777) - UDP broadcast port
-- `BROADCAST_ADDR` (default: 255.255.255.255) - Broadcast address
+- `HTTP_PORT` (default: 3001) - HTTP API and web interface port
+- `MULTICAST_ADDR` (default: 239.255.42.1) - UDP multicast group address
+- `MULTICAST_PORT` (default: 7777) - UDP multicast port
+- `RESPONSE_PORT` (default: 7778) - UDP port for device responses (discovery)
+- `MULTICAST_TTL` (default: 1) - Multicast TTL (1=local subnet)
 - `INTER_PACKET_DELAY_MS` (default: 2) - Delay between UDP packets
+- `DISCOVERY_TIMEOUT_MS` (default: 2000) - Discovery timeout
 - `VERBOSE` (default: false) - Enable detailed logging
 
 **server.js:**
@@ -113,45 +146,59 @@ See **PROTOCOL_IMPLEMENTATION.md** for detailed protocol specification and usage
 
 ```
 server/
-├── gradientFrameServer.js      # UDP frame broadcaster
-├── server.js                   # WebSocket device manager
-├── logger.js                   # Logging utility
-├── test-protocol.js            # Protocol testing script
-├── PROTOCOL_IMPLEMENTATION.md  # Detailed protocol docs
-├── README.md                   # This file
-├── package.json               # Node dependencies
-├── public/                    # Admin web interface
-└── data/                      # Persistent data (created at runtime)
-    └── mapping.json           # Device mappings
+├── gradientFrameServer.js          # UDP multicast frame broadcaster
+├── gradient-frame-public/          # Web control panel
+│   └── index.html                 # Single-page control interface
+├── server.js                       # WebSocket device manager (legacy)
+├── logger.js                       # Logging utility
+├── test-protocol.js                # Protocol testing script
+├── PROTOCOL_IMPLEMENTATION.md      # Detailed protocol docs
+├── README.md                       # This file
+├── package.json                    # Node dependencies
+├── public/                         # Admin web interface (legacy)
+└── data/                          # Persistent data (created at runtime)
+    └── mapping.json               # Device mappings
 ```
 
 ## Network Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Your Network                        │
-│                                                         │
-│  ┌──────────────────┐         ┌──────────────────┐    │
-│  │ server.js        │         │ gradientFrame    │    │
-│  │ (WebSocket)      │         │ Server.js        │    │
-│  │ Port 8080        │         │ (UDP Broadcast)  │    │
-│  └────────┬─────────┘         └────────┬─────────┘    │
-│           │                            │               │
-│           │ WS                         │ UDP           │
-│           │                            │ Port 7777     │
-│           ▼                            ▼               │
-│  ┌─────────────────────────────────────────────┐      │
-│  │           ESP8266 Devices                   │      │
-│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐   │      │
-│  │  │ ESP1 │  │ ESP2 │  │ ESP3 │  │ ESP4 │   │      │
-│  │  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘   │      │
-│  │     │         │         │         │        │      │
-│  │     ▼         ▼         ▼         ▼        │      │
-│  │  ┌──────────────────────────────────────┐ │      │
-│  │  │       NeoPixel LED Strips           │ │      │
-│  │  └──────────────────────────────────────┘ │      │
-│  └─────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                          Your Network                           │
+│                                                                 │
+│  ┌──────────────────────────────────────────────┐              │
+│  │  gradientFrameServer.js                      │              │
+│  │  ┌──────────────┐  ┌────────────────────┐   │              │
+│  │  │ Web UI       │  │ UDP Multicast      │   │              │
+│  │  │ Port 3001    │  │ 239.255.42.1:7777  │   │              │
+│  │  └──────────────┘  └────────────────────┘   │              │
+│  └──────┬───────────────────┬───────────────────┘              │
+│         │                   │ Multicast                        │
+│         │ HTTP              │ (Discovery, Identify, Frames)    │
+│         │                   ▼                                  │
+│  ┌──────▼────────────────────────────────────────────┐        │
+│  │           ESP8266/ESP32 Devices                   │        │
+│  │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐         │        │
+│  │  │ ESP1 │  │ ESP2 │  │ ESP3 │  │ ESP4 │         │        │
+│  │  │ :100 │  │ :104 │  │ :106 │  │ :107 │         │        │
+│  │  └──┬───┘  └──┬───┘  └──┬───┘  └──┬───┘         │        │
+│  │     │         │         │         │              │        │
+│  │     │ Unicast responses (port 7778)              │        │
+│  │     └─────────┴─────────┴─────────┴──────────────┤        │
+│  │                                                   │        │
+│  │     ▼         ▼         ▼         ▼              │        │
+│  │  ┌─────────────────────────────────────────┐    │        │
+│  │  │       NeoPixel LED Strips/Matrices      │    │        │
+│  │  │  Row 0     16x16    16x16     16x16     │    │        │
+│  │  └─────────────────────────────────────────┘    │        │
+│  └───────────────────────────────────────────────────┘        │
+│                                                                 │
+│  Features:                                                     │
+│  • Discover: Server finds all devices automatically           │
+│  • Identify: Flash specific device LEDs to locate             │
+│  • Multicast: One frame sent to all devices simultaneously    │
+│  • Coverage: Visualize which devices cover which pixels       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Development
@@ -207,10 +254,20 @@ sudo tcpdump -i any -n udp port 7777 -X
 
 ### ESP Not Receiving Frames
 
-1. Check broadcast address: `BROADCAST_ADDR=192.168.1.255`
-2. Verify ESP is on same subnet
-3. Check firewall allows UDP port 7777
-4. Increase inter-packet delay: `INTER_PACKET_DELAY_MS=5`
+1. Verify multicast is working: `MULTICAST_ADDR=239.255.42.1`
+2. Check ESP is on same subnet
+3. Check firewall allows UDP ports 7777 (multicast) and 7778 (responses)
+4. Enable IGMP Snooping on router
+5. Test discovery: `curl -X POST http://localhost:3001/api/discover`
+6. Increase inter-packet delay: `INTER_PACKET_DELAY_MS=5`
+
+### Discovery Not Finding Devices
+
+1. Check devices are connected to WiFi
+2. Verify firewall allows UDP port 7778
+3. Check router supports multicast/IGMP
+4. Monitor server logs for responses
+5. Try manual device access: `http://<device-ip>`
 
 ### Incomplete/Corrupted Frames
 

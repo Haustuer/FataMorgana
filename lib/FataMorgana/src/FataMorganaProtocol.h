@@ -72,6 +72,9 @@ constexpr uint8_t FATAMORGANA_CONFIG_SUBTYPE_SET_MAPPING = 1;
 /** Config SubType: Set device brightness */
 constexpr uint8_t FATAMORGANA_CONFIG_SUBTYPE_SET_BRIGHTNESS = 2;
 
+/** Config SubType: Identify device (flash LEDs) */
+constexpr uint8_t FATAMORGANA_CONFIG_SUBTYPE_IDENTIFY = 3;
+
 // ============================================================================
 // RGB ENCODING TYPES
 // ============================================================================
@@ -87,7 +90,7 @@ constexpr uint8_t FATAMORGANA_RGB565 = 1;
 // ============================================================================
 
 /** Size of binary discovery response packet */
-constexpr size_t FATAMORGANA_DISCOVERY_RESPONSE_SIZE = 68;
+constexpr size_t FATAMORGANA_DISCOVERY_RESPONSE_SIZE = 69;
 
 /** Magic bytes for discovery response validation: "FATA" */
 constexpr uint32_t FATAMORGANA_MAGIC_BYTES = 0x46415441;

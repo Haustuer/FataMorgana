@@ -34,6 +34,7 @@ const FRAME_TYPE_IMAGE_CONTINUATION = 2; // Subsequent packets of an image frame
 const CONFIG_SUBTYPE_DISCOVERY = 0;     // Discovery request
 const CONFIG_SUBTYPE_SET_MAPPING = 1;   // Set device mapping (future)
 const CONFIG_SUBTYPE_SET_BRIGHTNESS = 2; // Set brightness (future)
+const CONFIG_SUBTYPE_IDENTIFY = 3;      // Identify device (flash LEDs)
 
 // RGB Types (RGB565 uses little-endian byte order)
 const RGB332 = 0; // 3 bits red, 3 bits green, 2 bits blue (1 byte per pixel)
@@ -112,8 +113,8 @@ receiveSocket.bind(RESPONSE_PORT, () => {
 
 // Parse binary discovery response
 function parseDiscoveryResponse(buffer) {
-  if (buffer.length !== 68) {
-    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 68)`);
+  if (buffer.length !== 69) {
+    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 69)`);
   }
 
   // Check magic bytes "FATA" (0x46415441)
@@ -172,9 +173,13 @@ function parseDiscoveryResponse(buffer) {
   // Gamma correction (float, little-endian)
   const gamma = buffer.readFloatLE(64);
 
+  // Out-of-bounds mode
+  const oobMode = buffer.readUInt8(68);
+
   const modeNames = ['row', 'column', 'rectangle'];
   const sampleModeNames = ['pixel', 'interpolated'];
   const serpentineModeNames = ['none', 'horizontal', 'vertical'];
+  const oobModeNames = ['black', 'clamp', 'mirror'];
 
   return {
     protocol: 'FataMorgana',
@@ -212,7 +217,9 @@ function parseDiscoveryResponse(buffer) {
       flipX,
       flipY,
       flipZ,
-      gamma
+      gamma,
+      oobMode,
+      oobModeName: oobModeNames[oobMode] || 'unknown'
     },
     status: {
       lastFrameCounter: 0,
@@ -604,6 +611,62 @@ async function sendDiscoveryRequest() {
   }
 }
 
+// Send identify request to a specific device
+async function sendIdentifyRequest({ targetType, targetValue, flashCount = 3 }) {
+  // targetType: 0 = IP address, 1 = Chip ID
+  // targetValue: IP address string or chip ID number
+  // flashCount: number of times to flash (1-255)
+
+  const packet = Buffer.alloc(14); // 8 byte header + 6 byte payload
+
+  // Header
+  packet[0] = FRAME_TYPE_CONFIG;           // Type = 0
+  packet[1] = nextFrameCounter;            // Frame counter
+  packet[2] = 0;                           // Chunk index = 0
+  packet[3] = CONFIG_SUBTYPE_IDENTIFY;     // SubType = 3 (identify)
+  packet.writeUInt16LE(0, 4);              // Reserved
+  packet.writeUInt16LE(0, 6);              // Reserved
+
+  // Payload: Target type + Target value + Flash count
+  packet[8] = targetType; // 0 = IP, 1 = Chip ID
+
+  if (targetType === 0) {
+    // IP address (big-endian)
+    const ipParts = targetValue.split('.').map(Number);
+    packet[9] = ipParts[0];
+    packet[10] = ipParts[1];
+    packet[11] = ipParts[2];
+    packet[12] = ipParts[3];
+  } else {
+    // Chip ID (little-endian)
+    const chipId = typeof targetValue === 'string' ? parseInt(targetValue, 16) : targetValue;
+    packet.writeUInt32LE(chipId, 9);
+  }
+
+  packet[13] = Math.max(1, Math.min(255, flashCount)); // Flash count (1-255)
+
+  nextFrameCounter = (nextFrameCounter + 1) & 0xff;
+
+  log("Sending identify request", {
+    targetType: targetType === 0 ? 'IP' : 'Chip ID',
+    targetValue,
+    flashCount: packet[13]
+  });
+
+  try {
+    await sendUdpPacket(packet);
+    return {
+      ok: true,
+      targetType: targetType === 0 ? 'IP' : 'Chip ID',
+      targetValue,
+      flashCount: packet[13]
+    };
+  } catch (error) {
+    log("Identify request failed", { error: error.message });
+    return { ok: false, error: error.message };
+  }
+}
+
 // Calculate coverage for a device
 function calculateCoverage(device, imageWidth, imageHeight) {
   const { mapping } = device;
@@ -938,6 +1001,42 @@ app.post("/api/discover", async (_req, res) => {
   }
 });
 
+app.post("/api/identify", async (req, res) => {
+  try {
+    const { ip, chipId, flashCount = 3 } = req.body;
+
+    if (!ip && !chipId) {
+      res.status(400).json({
+        ok: false,
+        error: "Must provide either 'ip' or 'chipId' parameter"
+      });
+      return;
+    }
+
+    if (ip && chipId) {
+      res.status(400).json({
+        ok: false,
+        error: "Provide only one of 'ip' or 'chipId', not both"
+      });
+      return;
+    }
+
+    const targetType = ip ? 0 : 1;
+    const targetValue = ip || chipId;
+
+    const result = await sendIdentifyRequest({
+      targetType,
+      targetValue,
+      flashCount
+    });
+
+    res.json(result);
+  } catch (error) {
+    log("Identify error", { error: error.message });
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 app.get("/api/devices", (_req, res) => {
   const devices = Array.from(discoveredDevices.values()).map(device => ({
     ip: device.device.ip,
@@ -1029,6 +1128,7 @@ app.listen(HTTP_PORT, () => {
   console.log("║   GET  /api/config    - Server configuration             ║");
   console.log("║   POST /api/frame     - Send image frame                 ║");
   console.log("║   POST /api/discover  - Discover devices                 ║");
+  console.log("║   POST /api/identify  - Identify device (flash LEDs)     ║");
   console.log("║   GET  /api/devices   - List discovered devices          ║");
   console.log("║   GET  /api/coverage  - Calculate image coverage         ║");
   console.log("╠══════════════════════════════════════════════════════════╣");
@@ -1036,6 +1136,11 @@ app.listen(HTTP_PORT, () => {
   console.log("║                                                          ║");
   console.log("║ # Discover devices                                       ║");
   console.log(`║ curl -X POST http://localhost:${HTTP_PORT}/api/discover           ║`);
+  console.log("║                                                          ║");
+  console.log("║ # Identify device by IP (flash 5 times)                 ║");
+  console.log(`║ curl -X POST http://localhost:${HTTP_PORT}/api/identify \\        ║`);
+  console.log("║   -H 'Content-Type: application/json' \\                 ║");
+  console.log("║   -d '{\"ip\":\"192.168.1.100\",\"flashCount\":5}'          ║");
   console.log("║                                                          ║");
   console.log("║ # Send gradient frame                                    ║");
   console.log(`║ curl -X POST http://localhost:${HTTP_PORT}/api/frame \\          ║`);

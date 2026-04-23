@@ -282,6 +282,28 @@
       100% { transform: rotate(360deg); }
     }
 
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
+
     .error {
       background: #f8d7da;
       color: #721c24;
@@ -431,6 +453,7 @@
       <button class="tab" onclick="openTab(event, 'visualizer')">Visualizer</button>
       <button class="tab" onclick="openTab(event, 'coverage')">Coverage</button>
       <button class="tab" onclick="openTab(event, 'control')">Control</button>
+      <button class="tab" onclick="openTab(event, 'animation')">Animation</button>
       <button class="tab" onclick="openTab(event, 'about')">About</button>
     </div>
 
@@ -595,6 +618,76 @@
       <div id="frameResult"></div>
     </div>
 
+    <div id="animation" class="tab-content">
+      <div class="card">
+        <h3>Rainbow Animation</h3>
+        <p>Animated rainbow pattern cycling through colors continuously.</p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Width</label>
+            <input type="number" id="animWidth" value="24" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>Height</label>
+            <input type="number" id="animHeight" value="100" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>RGB Encoding</label>
+            <select id="animRgbType">
+              <option value="0">RGB332 (1 byte/pixel)</option>
+              <option value="1">RGB565 (2 bytes/pixel)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 20px;">
+          <label style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <span>Frame Rate: <strong id="fpsValue">30</strong> FPS</span>
+            <span style="color: #666; font-size: 0.9em;">(<span id="frameTimeValue">33</span> ms per frame)</span>
+          </label>
+          <input type="range" id="animFps" min="1" max="80" value="30" oninput="updateFpsDisplay()" style="width: 100%;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: #666; margin-top: 5px;">
+            <span>1 FPS</span>
+            <span>80 FPS</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+          <button class="button success" id="startAnimBtn" onclick="startAnimation()">▶️ Start Animation</button>
+          <button class="button error" id="stopAnimBtn" onclick="stopAnimation()" disabled>⏹️ Stop Animation</button>
+        </div>
+
+        <div id="animationStats" style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 6px; display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+            <div>
+              <label style="font-size: 0.85em; color: #666;">Frames Sent</label>
+              <div style="font-size: 1.5em; font-weight: bold; color: #667eea;" id="animFramesSent">0</div>
+            </div>
+            <div>
+              <label style="font-size: 0.85em; color: #666;">Running Time</label>
+              <div style="font-size: 1.5em; font-weight: bold; color: #667eea;" id="animRunningTime">0s</div>
+            </div>
+            <div>
+              <label style="font-size: 0.85em; color: #666;">Actual FPS</label>
+              <div style="font-size: 1.5em; font-weight: bold; color: #667eea;" id="animActualFps">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="animationVisualizerCard" style="display: none;">
+        <h3>Live Preview</h3>
+        <p>Visual representation of the animation with device regions overlaid.</p>
+        <div class="vis-controls">
+          <label>Zoom: <input type="range" id="animVisZoom" min="1" max="20" value="8" oninput="updateAnimationVisualizer()"></label>
+          <label><input type="checkbox" id="animVisShowLabels" checked onchange="updateAnimationVisualizer()"> Show Labels</label>
+          <label><input type="checkbox" id="animVisAutoRefresh" checked> Auto Refresh</label>
+        </div>
+        <canvas id="animationVisualizerCanvas" width="800" height="600"></canvas>
+      </div>
+    </div>
+
     <div id="about" class="tab-content">
       <div class="card">
         <h3>FataMorgana Protocol v1.0</h3>
@@ -637,9 +730,17 @@ POST /api/frame     - Send image frame</code></pre>
       evt.currentTarget.classList.add('active');
       document.getElementById(tabName).classList.add('active');
 
+      // Stop animation when switching away from animation tab
+      if (tabName !== 'animation' && animationRunning) {
+        stopAnimation();
+      }
+
       if (tabName === 'devices') loadDevices();
       if (tabName === 'visualizer') updateVisualizer();
       if (tabName === 'coverage') loadCoverageData();
+      if (tabName === 'animation' && document.getElementById('animationVisualizerCard').style.display !== 'none') {
+        updateAnimationVisualizer();
+      }
     }
 
     async function loadServerConfig() {
@@ -698,6 +799,9 @@ POST /api/frame     - Send image frame</code></pre>
                 ${device.hostname || device.ip}
               </div>
               <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="button secondary" onclick="identifyDevice('${device.ip}', '${device.hostname || device.ip}')" style="padding: 8px 16px; font-size: 0.9em; margin: 0;">
+                  💡 Identify
+                </button>
                 <a href="http://${device.ip}" target="_blank" class="button" style="text-decoration: none; padding: 8px 16px; font-size: 0.9em; margin: 0;">
                   🌐 Open Device
                 </a>
@@ -758,6 +862,10 @@ POST /api/frame     - Send image frame</code></pre>
                   <label>Gamma Correction</label>
                   <value>${device.mapping.gamma ? device.mapping.gamma.toFixed(2) : '2.2'}</value>
                 </div>
+                <div class="device-detail">
+                  <label>Out-of-Bounds Mode</label>
+                  <value>${device.mapping.oobModeName || 'black'}</value>
+                </div>
               ` : ''}
               ${device.mapping.mode === 0 ? `
                 <div class="device-detail">
@@ -768,6 +876,10 @@ POST /api/frame     - Send image frame</code></pre>
                   <label>Line Pixels</label>
                   <value>${device.mapping.linePixels}</value>
                 </div>
+                <div class="device-detail">
+                  <label>Out-of-Bounds Mode</label>
+                  <value>${device.mapping.oobModeName || 'black'}</value>
+                </div>
               ` : ''}
               ${device.mapping.mode === 1 ? `
                 <div class="device-detail">
@@ -777,6 +889,10 @@ POST /api/frame     - Send image frame</code></pre>
                 <div class="device-detail">
                   <label>Line Pixels</label>
                   <value>${device.mapping.linePixels}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Out-of-Bounds Mode</label>
+                  <value>${device.mapping.oobModeName || 'black'}</value>
                 </div>
               ` : ''}
               <div class="device-detail">
@@ -827,6 +943,46 @@ POST /api/frame     - Send image frame</code></pre>
           listDiv.innerHTML = `<div class="error">Discovery failed: ${error.message}</div>`;
         }
       }
+    }
+
+    async function identifyDevice(ip, hostname) {
+      const flashCount = 3; // Default to 3 flashes
+
+      try {
+        const response = await fetch('/api/identify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip, flashCount })
+        });
+        const data = await response.json();
+
+        if (data.ok) {
+          showNotification(`✓ Identify signal sent to ${hostname || ip}`, 'success');
+        } else {
+          throw new Error(data.error || 'Identify failed');
+        }
+      } catch (error) {
+        showNotification(`✗ Identify failed: ${error.message}`, 'error');
+      }
+    }
+
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = type === 'success' ? 'success' : 'error';
+      notification.textContent = message;
+      notification.style.position = 'fixed';
+      notification.style.top = '20px';
+      notification.style.right = '20px';
+      notification.style.zIndex = '10000';
+      notification.style.padding = '15px 20px';
+      notification.style.borderRadius = '6px';
+      notification.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+      notification.style.animation = 'slideIn 0.3s ease';
+      document.body.appendChild(notification);
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
     }
 
     async function calculateCoverage() {
@@ -1338,11 +1494,244 @@ POST /api/frame     - Send image frame</code></pre>
       }
     }
 
+    // ========================================================================
+    // Animation Functions
+    // ========================================================================
+
+    let animationRunning = false;
+    let animationIntervalId = null;
+    let animationStartTime = 0;
+    let animationFrameCount = 0;
+    let animationOffset = 0;
+
+    function updateFpsDisplay() {
+      const fps = document.getElementById('animFps').value;
+      const frameTime = Math.round(1000 / fps);
+      document.getElementById('fpsValue').textContent = fps;
+      document.getElementById('frameTimeValue').textContent = frameTime;
+    }
+
+    async function startAnimation() {
+      if (animationRunning) return;
+
+      const width = parseInt(document.getElementById('animWidth').value);
+      const height = parseInt(document.getElementById('animHeight').value);
+      const rgbType = parseInt(document.getElementById('animRgbType').value);
+      const fps = parseInt(document.getElementById('animFps').value);
+      const frameInterval = 1000 / fps;
+
+      // Reset stats
+      animationFrameCount = 0;
+      animationStartTime = Date.now();
+      animationOffset = 0;
+
+      // Update UI
+      animationRunning = true;
+      document.getElementById('startAnimBtn').disabled = true;
+      document.getElementById('stopAnimBtn').disabled = false;
+      document.getElementById('animationStats').style.display = 'block';
+      document.getElementById('animationVisualizerCard').style.display = 'block';
+
+      // Initial visualizer update
+      await updateAnimationVisualizer();
+
+      // Animation loop
+      animationIntervalId = setInterval(async () => {
+        try {
+          await sendAnimationFrame(width, height, rgbType);
+          animationFrameCount++;
+          animationOffset = (animationOffset + 1) % 360; // Cycle through 360 degrees
+
+          // Update stats
+          const runningTime = ((Date.now() - animationStartTime) / 1000).toFixed(1);
+          const actualFps = (animationFrameCount / (Date.now() - animationStartTime) * 1000).toFixed(1);
+          document.getElementById('animFramesSent').textContent = animationFrameCount;
+          document.getElementById('animRunningTime').textContent = runningTime + 's';
+          document.getElementById('animActualFps').textContent = actualFps;
+
+          // Update visualizer if auto-refresh is enabled
+          if (document.getElementById('animVisAutoRefresh').checked) {
+            await updateAnimationVisualizer();
+          }
+        } catch (error) {
+          console.error('Animation frame error:', error);
+        }
+      }, frameInterval);
+    }
+
+    function stopAnimation() {
+      if (!animationRunning) return;
+
+      animationRunning = false;
+      if (animationIntervalId) {
+        clearInterval(animationIntervalId);
+        animationIntervalId = null;
+      }
+
+      // Update UI
+      document.getElementById('startAnimBtn').disabled = false;
+      document.getElementById('stopAnimBtn').disabled = true;
+      // Keep stats and visualizer visible after stop (don't hide them)
+    }
+
+    async function sendAnimationFrame(width, height, rgbType) {
+      const response = await fetch('/api/frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          width,
+          height,
+          rgbType,
+          pattern: 'rainbow',
+          patternOptions: {
+            offset: animationOffset
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.ok) {
+        throw new Error(data.error || 'Frame send failed');
+      }
+    }
+
+    async function updateAnimationVisualizer() {
+      const canvas = document.getElementById('animationVisualizerCanvas');
+      const ctx = canvas.getContext('2d');
+      const zoom = parseInt(document.getElementById('animVisZoom').value);
+      const showLabels = document.getElementById('animVisShowLabels').checked;
+
+      try {
+        // Fetch last frame data
+        const response = await fetch('/api/frame/last');
+        const frameData = await response.json();
+
+        if (!frameData.ok || !frameData.pixels) {
+          // No frame data, show empty state
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#666';
+          ctx.font = '20px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('No frame sent yet', canvas.width / 2, canvas.height / 2);
+          return;
+        }
+
+        const width = frameData.width;
+        const height = frameData.height;
+        const rgbType = frameData.rgbType;
+
+        // Resize canvas
+        canvas.width = width * zoom;
+        canvas.height = height * zoom;
+
+        // Decode pixel buffer from base64
+        const pixelBuffer = Uint8Array.from(atob(frameData.pixels), c => c.charCodeAt(0));
+
+        // Create ImageData for rendering
+        const imageData = ctx.createImageData(width, height);
+        let pixelIndex = 0;
+
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          let r, g, b;
+
+          if (rgbType === 0) { // RGB332
+            const byte = pixelBuffer[pixelIndex++];
+            r = ((byte >> 5) & 0x07) * 255 / 7;
+            g = ((byte >> 2) & 0x07) * 255 / 7;
+            b = (byte & 0x03) * 255 / 3;
+          } else { // RGB565
+            const low = pixelBuffer[pixelIndex++];
+            const high = pixelBuffer[pixelIndex++];
+            const rgb565 = (high << 8) | low;
+            r = ((rgb565 >> 11) & 0x1F) * 255 / 31;
+            g = ((rgb565 >> 5) & 0x3F) * 255 / 63;
+            b = (rgb565 & 0x1F) * 255 / 31;
+          }
+
+          imageData.data[i] = r;
+          imageData.data[i + 1] = g;
+          imageData.data[i + 2] = b;
+          imageData.data[i + 3] = 255; // Alpha
+        }
+
+        // Draw frame at 1x scale, then scale up with nearest-neighbor
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+
+        // Scale up with pixelated rendering
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tempCanvas, 0, 0, width * zoom, height * zoom);
+
+        // Overlay device regions if we have devices
+        if (devices.length > 0 && showLabels) {
+          devices.forEach((device, index) => {
+            if (device.mapping.mode === 2) { // Rectangle mode
+              const x = device.mapping.rectX || 0;
+              const y = device.mapping.rectY || 0;
+              const w = device.mapping.rectWidth || 1;
+              const h = device.mapping.rectHeight || 1;
+
+              // Semi-transparent border
+              const hue = (index * 137) % 360;
+              ctx.strokeStyle = `hsla(${hue}, 70%, 60%, 0.8)`;
+              ctx.lineWidth = 2;
+              ctx.strokeRect(x * zoom, y * zoom, w * zoom, h * zoom);
+
+              // Label
+              if (zoom >= 4) {
+                ctx.fillStyle = `hsla(${hue}, 70%, 60%, 0.9)`;
+                ctx.fillRect(x * zoom, y * zoom, w * zoom, Math.min(zoom * 2, 20));
+                ctx.fillStyle = '#fff';
+                ctx.font = `${Math.min(zoom * 1.5, 14)}px Arial`;
+                ctx.textAlign = 'left';
+                ctx.fillText(device.hostname || device.ip, x * zoom + 4, y * zoom + Math.min(zoom * 1.5, 14));
+              }
+            }
+          });
+        }
+
+        // Draw frame info
+        if (showLabels) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(0, 0, 200, 20);
+          ctx.fillStyle = '#fff';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${width}×${height} ${rgbType === 0 ? 'RGB332' : 'RGB565'} (Animating)`, 5, 14);
+        }
+
+      } catch (error) {
+        console.error('Failed to load frame:', error);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#666';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Failed to load frame', canvas.width / 2, canvas.height / 2);
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
       await loadServerConfig();
       await loadDevices();
       initImageUpload();
       togglePatternControls(); // Initialize control visibility
+      updateFpsDisplay(); // Initialize FPS display
+    });
+
+    // Stop animation when page is unloaded
+    window.addEventListener('beforeunload', () => {
+      if (animationRunning) {
+        stopAnimation();
+      }
     });
 
     setInterval(refreshData, 10000);

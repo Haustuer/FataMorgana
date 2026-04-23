@@ -10,7 +10,8 @@ FataMorganaRenderer::FataMorganaRenderer(Adafruit_NeoPixel& strip)
       _frameBuffer(nullptr),
       _width(0),
       _height(0),
-      _rgbType(FATAMORGANA_RGB332) {
+      _rgbType(FATAMORGANA_RGB332),
+      _oobMode(FATAMORGANA_OOB_BLACK) {
 }
 
 void FataMorganaRenderer::clear(bool show) {
@@ -46,9 +47,42 @@ FataMorganaColor FataMorganaRenderer::decodePixel(size_t pixelIndex) const {
 }
 
 FataMorganaColor FataMorganaRenderer::getPixelAt(int32_t x, int32_t y) const {
+    // Handle out-of-bounds pixels based on configured mode
     if (x < 0 || y < 0 || x >= _width || y >= _height) {
-        return FataMorganaColor(0, 0, 0);  // Black for out of bounds
+        switch (_oobMode) {
+            case FATAMORGANA_OOB_CLAMP:
+                // Clamp to edge - use nearest border pixel
+                x = x < 0 ? 0 : (x >= _width ? _width - 1 : x);
+                y = y < 0 ? 0 : (y >= _height ? _height - 1 : y);
+                break;
+
+            case FATAMORGANA_OOB_MIRROR:
+                // Mirror at boundaries
+                if (x < 0) {
+                    x = -x - 1;
+                } else if (x >= _width) {
+                    x = 2 * _width - x - 1;
+                }
+
+                if (y < 0) {
+                    y = -y - 1;
+                } else if (y >= _height) {
+                    y = 2 * _height - y - 1;
+                }
+
+                // After mirroring, clamp if still out of bounds
+                if (x < 0 || x >= _width || y < 0 || y >= _height) {
+                    return FataMorganaColor(0, 0, 0);  // Black fallback
+                }
+                break;
+
+            case FATAMORGANA_OOB_BLACK:
+            default:
+                // Return black for out-of-bounds
+                return FataMorganaColor(0, 0, 0);
+        }
     }
+
     return decodePixel(static_cast<size_t>(y) * _width + x);
 }
 
@@ -212,6 +246,7 @@ void FataMorganaRenderer::renderFrame(const uint8_t* frameBuffer,
     _width = width;
     _height = height;
     _rgbType = rgbType;
+    _oobMode = mapping.oobMode;
 
     // Check if frame is valid
     if (width == 0 || height == 0 || frameBuffer == nullptr) {

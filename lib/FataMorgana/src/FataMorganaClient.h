@@ -115,6 +115,12 @@ public:
     void setGamma(float gamma);
 
     /**
+     * Set out-of-bounds handling mode
+     * @param mode OOB_BLACK, OOB_CLAMP, or OOB_MIRROR
+     */
+    void setOOBMode(uint8_t mode);
+
+    /**
      * Get current mapping configuration
      * @return Reference to mapping configuration
      */
@@ -251,6 +257,13 @@ private:
      * @param serverPort Server response port
      */
     void sendDiscoveryResponse(IPAddress serverIP, uint16_t serverPort);
+
+    /**
+     * Handle identify request (flash LEDs)
+     * @param payload Identify request payload
+     * @param payloadLength Payload length
+     */
+    void handleIdentifyRequest(const uint8_t* payload, size_t payloadLength);
 
     /**
      * Begin frame assembly

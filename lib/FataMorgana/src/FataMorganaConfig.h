@@ -47,6 +47,19 @@ constexpr uint8_t FATAMORGANA_SERPENTINE_HORIZONTAL = 1;
 constexpr uint8_t FATAMORGANA_SERPENTINE_VERTICAL = 2;
 
 // ============================================================================
+// OUT-OF-BOUNDS MODES
+// ============================================================================
+
+/** OOB Mode: Return black (0,0,0) for out-of-bounds pixels */
+constexpr uint8_t FATAMORGANA_OOB_BLACK = 0;
+
+/** OOB Mode: Clamp to edge (hold/repeat border pixel) */
+constexpr uint8_t FATAMORGANA_OOB_CLAMP = 1;
+
+/** OOB Mode: Mirror/reflect at boundaries */
+constexpr uint8_t FATAMORGANA_OOB_MIRROR = 2;
+
+// ============================================================================
 // RGB COLOR STRUCTURE
 // ============================================================================
 
@@ -99,6 +112,9 @@ struct FataMorganaMapping {
     bool flipY;                  ///< Flip vertically (mirror across horizontal axis)
     bool flipZ;                  ///< Flip diagonally (transpose/swap X and Y)
 
+    // Out-of-bounds handling
+    uint8_t oobMode;             ///< Out-of-bounds mode (BLACK, CLAMP, or MIRROR)
+
     // Color correction
     float gamma;                 ///< Gamma correction (1.0=linear, 2.2=standard, 2.8=typical LEDs)
 
@@ -118,6 +134,7 @@ struct FataMorganaMapping {
           flipX(false),
           flipY(false),
           flipZ(false),
+          oobMode(FATAMORGANA_OOB_BLACK),
           gamma(2.2f) {}
 };
 
@@ -178,6 +195,24 @@ inline const char* fatamorgana_serpentineModeName(uint8_t mode) {
 }
 
 /**
+ * Get human-readable name for out-of-bounds mode
+ * @param mode OOB mode constant
+ * @return String name ("black", "clamp", or "mirror")
+ */
+inline const char* fatamorgana_oobModeName(uint8_t mode) {
+    switch (mode) {
+        case FATAMORGANA_OOB_BLACK:
+            return "black";
+        case FATAMORGANA_OOB_CLAMP:
+            return "clamp";
+        case FATAMORGANA_OOB_MIRROR:
+            return "mirror";
+        default:
+            return "unknown";
+    }
+}
+
+/**
  * Sanitize mapping configuration to valid ranges
  * @param config Mapping configuration to validate/fix
  * @param ledCount Total number of LEDs available
@@ -217,6 +252,11 @@ inline void fatamorgana_sanitizeMapping(FataMorganaMapping& config, uint16_t led
     // Validate serpentine mode
     if (config.serpentine > FATAMORGANA_SERPENTINE_VERTICAL) {
         config.serpentine = FATAMORGANA_SERPENTINE_NONE;
+    }
+
+    // Validate out-of-bounds mode
+    if (config.oobMode > FATAMORGANA_OOB_MIRROR) {
+        config.oobMode = FATAMORGANA_OOB_BLACK;
     }
 
     // Validate gamma (1.0 to 3.5 is reasonable range)

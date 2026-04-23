@@ -161,6 +161,7 @@ String FataMorganaWebUI::buildConfigJson() {
     doc["flipY"] = mapping.flipY;
     doc["flipZ"] = mapping.flipZ;
     doc["gamma"] = mapping.gamma;
+    doc["oobMode"] = mapping.oobMode;
     doc["ledCount"] = _client.getStrip().numPixels();
 
     String json;
@@ -240,6 +241,10 @@ void FataMorganaWebUI::handleSetConfig() {
 
     if (doc["gamma"].is<float>()) {
         _client.setGamma(doc["gamma"]);
+    }
+
+    if (doc["oobMode"].is<uint8_t>()) {
+        _client.setOOBMode(doc["oobMode"]);
     }
 
     // Re-render last frame with new settings for immediate visual feedback

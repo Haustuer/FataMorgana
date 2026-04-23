@@ -56,6 +56,7 @@ private:
     uint16_t _width;              ///< Current frame width
     uint16_t _height;             ///< Current frame height
     uint8_t _rgbType;             ///< Current RGB encoding type
+    uint8_t _oobMode;             ///< Out-of-bounds handling mode
 
     /**
      * Decode a single pixel from frame buffer

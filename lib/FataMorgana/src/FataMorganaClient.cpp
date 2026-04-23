@@ -123,6 +123,14 @@ void FataMorganaClient::handlePacket(const uint8_t* data, size_t length) {
             } else {
                 _rejectedPackets++;
             }
+        } else if (subType == FATAMORGANA_CONFIG_SUBTYPE_IDENTIFY) {
+            // Identify request: payload contains target type + target value + flash count
+            if (payloadLength >= 6) {
+                handleIdentifyRequest(payload, payloadLength);
+                _acceptedPackets++;
+            } else {
+                _rejectedPackets++;
+            }
         } else {
             _rejectedPackets++;
         }
@@ -265,12 +273,76 @@ void FataMorganaClient::sendDiscoveryResponse(IPAddress serverIP, uint16_t serve
     float gamma = _mapping.gamma;
     memcpy(response + 64, &gamma, sizeof(float));
 
+    // Out-of-bounds mode
+    response[68] = _mapping.oobMode;
+
     // Send UDP packet
     _udp.beginPacket(serverIP, serverPort);
     _udp.write(response, sizeof(response));
     _udp.endPacket();
 
     Serial.printf("FataMorgana: Sent discovery response (%u bytes)\n", sizeof(response));
+}
+
+void FataMorganaClient::handleIdentifyRequest(const uint8_t* payload, size_t payloadLength) {
+    if (payloadLength < 6) {
+        return;
+    }
+
+    const uint8_t targetType = payload[0];
+    const uint8_t flashCount = payload[5];
+
+    bool isTargeted = false;
+
+    if (targetType == 0) {
+        // Target by IP address (big-endian)
+        IPAddress targetIP(payload[1], payload[2], payload[3], payload[4]);
+        IPAddress localIP = WiFi.localIP();
+        isTargeted = (targetIP == localIP);
+
+        if (isTargeted) {
+            Serial.printf("FataMorgana: Identify request for IP %s (flash %u times)\n",
+                          targetIP.toString().c_str(), flashCount);
+        }
+    } else if (targetType == 1) {
+        // Target by Chip ID (little-endian)
+        uint32_t targetChipId = payload[1] | (payload[2] << 8) | (payload[3] << 16) | (payload[4] << 24);
+        uint32_t localChipId = ESP.getChipId();
+        isTargeted = (targetChipId == localChipId);
+
+        if (isTargeted) {
+            Serial.printf("FataMorgana: Identify request for Chip ID 0x%08X (flash %u times)\n",
+                          targetChipId, flashCount);
+        }
+    }
+
+    if (isTargeted) {
+        // Flash LEDs
+        const uint8_t brightness = _strip.getBrightness();
+        const uint16_t ledCount = _strip.numPixels();
+
+        for (uint8_t i = 0; i < flashCount; i++) {
+            // Flash white
+            for (uint16_t j = 0; j < ledCount; j++) {
+                _strip.setPixelColor(j, _strip.Color(255, 255, 255));
+            }
+            _strip.show();
+            delay(200);
+
+            // Turn off
+            for (uint16_t j = 0; j < ledCount; j++) {
+                _strip.setPixelColor(j, 0);
+            }
+            _strip.show();
+            delay(200);
+        }
+
+        // Restore brightness and re-render last frame if available
+        _strip.setBrightness(brightness);
+        reRenderLastFrame();
+
+        Serial.println(F("FataMorgana: Identify sequence complete"));
+    }
 }
 
 bool FataMorganaClient::beginFrame(uint8_t frameCounter, uint8_t rgbType, uint16_t width, uint16_t height) {
@@ -404,6 +476,11 @@ void FataMorganaClient::setBrightness(uint8_t brightness) {
 
 void FataMorganaClient::setGamma(float gamma) {
     _mapping.gamma = gamma;
+    fatamorgana_sanitizeMapping(_mapping, _ledCount);
+}
+
+void FataMorganaClient::setOOBMode(uint8_t mode) {
+    _mapping.oobMode = mode;
     fatamorgana_sanitizeMapping(_mapping, _ledCount);
 }
 

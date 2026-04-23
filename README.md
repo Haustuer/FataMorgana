@@ -13,6 +13,7 @@ FataMorgana is a UDP multicast protocol and library for controlling multiple LED
 - **Binary Format** - Compact 8-byte headers, RGB332/RGB565 encoding
 - **Chunked Frames** - Support for large images up to 4800 bytes
 - **Auto-Discovery** - Devices announce themselves to the server
+- **Device Identification** - Flash LEDs on specific devices to locate them physically
 
 ### Mapping Modes
 - **Rectangle** - Extract rectangular region from image
@@ -23,6 +24,7 @@ FataMorgana is a UDP multicast protocol and library for controlling multiple LED
 - **Rotation** - 0°, 90°, 180°, 270° rotation support
 - **Flips** - Horizontal, vertical, diagonal mirroring
 - **Serpentine** - Zigzag LED matrix wiring (horizontal/vertical)
+- **Out-of-Bounds** - Black, clamp (edge repeat), or mirror modes
 
 ### Hardware Support
 - ESP8266 and ESP32 platforms
@@ -134,12 +136,43 @@ npm start
 
 Access server interface: `http://localhost:3001`
 
-### Send Test Frame
+### Server Features
 
+The web control panel provides:
+- **Pattern Generator** - Send test patterns (gradient, solid, checkerboard, rainbow)
+- **Image Upload** - Upload and broadcast custom images
+- **Rainbow Animation** - Continuous animated rainbow (1-80 FPS, adjustable resolution/encoding)
+- **Device Discovery** - Find all devices on the network
+- **Device Identification** - Flash specific devices to locate them
+- **Live Visualizer** - See frames with device regions overlaid
+- **Coverage Map** - Calculate pixel coverage across devices
+
+### Server API Examples
+
+**Discover devices:**
+```bash
+curl -X POST http://localhost:3001/api/discover
+```
+
+**Send test frame:**
 ```bash
 curl -X POST http://localhost:3001/api/frame \
   -H "Content-Type: application/json" \
   -d '{"width":24,"height":100,"pattern":"gradient"}'
+```
+
+**Identify device (flash LEDs):**
+```bash
+curl -X POST http://localhost:3001/api/identify \
+  -H "Content-Type: application/json" \
+  -d '{"ip":"192.168.1.100","flashCount":5}'
+```
+
+**Upload custom image:**
+```bash
+curl -X POST http://localhost:3001/api/frame/image \
+  -H "Content-Type: application/json" \
+  -d '{"image":"data:image/png;base64,...","targetWidth":24,"targetHeight":100}'
 ```
 
 ---
@@ -241,13 +274,24 @@ All devices receive the same frame simultaneously via multicast, ensuring perfec
 
 ## Configuration
 
-### Via Web Interface
+### Via Server Control Panel
 
-Access `http://<device-ip>` to configure:
+Access `http://localhost:3001` for centralized control:
+- **Discover** all devices on network
+- **Identify** specific devices (flash LEDs to locate physically)
+- **Send** test patterns or custom images
+- **Visualize** frame data with device regions
+- **Calculate** coverage maps
+
+### Via Device Web Interface
+
+Access `http://<device-ip>` to configure individual devices:
 - Mapping mode (Rectangle/Row/Column)
 - Position and size
 - Rotation and flips
 - Serpentine wiring mode
+- Out-of-bounds mode (Black/Clamp/Mirror)
+- Gamma correction
 - Brightness
 
 Changes auto-save and re-render immediately.
@@ -283,6 +327,7 @@ client.setSampleMode(SAMPLE_INTERPOLATED);
 // Transforms
 client.setRotation(2);  // 180° rotation
 client.setFlip(true, false, false);  // Horizontal flip
+client.setOOBMode(FATAMORGANA_OOB_CLAMP);  // Clamp out-of-bounds pixels
 client.setBrightness(80);
 ```
 
