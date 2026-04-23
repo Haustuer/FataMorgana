@@ -179,8 +179,24 @@ void FataMorganaRenderer::applyTransforms(uint16_t& row,
     }
 }
 
-uint32_t FataMorganaRenderer::toNeoPixelColor(const FataMorganaColor& color) const {
-    return _strip.Color(color.r, color.g, color.b);
+uint32_t FataMorganaRenderer::toNeoPixelColor(const FataMorganaColor& color, float gamma) const {
+    // Apply gamma correction to each channel
+    // Formula: corrected = pow(value / 255.0, gamma) * 255.0
+    uint8_t r_corrected, g_corrected, b_corrected;
+
+    if (gamma == 1.0f) {
+        // No correction needed (linear)
+        r_corrected = color.r;
+        g_corrected = color.g;
+        b_corrected = color.b;
+    } else {
+        // Apply gamma correction
+        r_corrected = static_cast<uint8_t>(pow(color.r / 255.0f, gamma) * 255.0f + 0.5f);
+        g_corrected = static_cast<uint8_t>(pow(color.g / 255.0f, gamma) * 255.0f + 0.5f);
+        b_corrected = static_cast<uint8_t>(pow(color.b / 255.0f, gamma) * 255.0f + 0.5f);
+    }
+
+    return _strip.Color(r_corrected, g_corrected, b_corrected);
 }
 
 void FataMorganaRenderer::renderFrame(const uint8_t* frameBuffer,
@@ -213,7 +229,7 @@ void FataMorganaRenderer::renderFrame(const uint8_t* frameBuffer,
             for (uint16_t ledIndex = 0; ledIndex < pixelsToRender; ledIndex++) {
                 FataMorganaColor color = sampleLine(true, mapping.rowIndex, ledIndex,
                                                      mapping.linePixels, mapping.sampleMode);
-                _strip.setPixelColor(ledIndex, toNeoPixelColor(color));
+                _strip.setPixelColor(ledIndex, toNeoPixelColor(color, mapping.gamma));
             }
         }
     } else if (mapping.mode == FATAMORGANA_MAPPING_COLUMN) {
@@ -223,7 +239,7 @@ void FataMorganaRenderer::renderFrame(const uint8_t* frameBuffer,
             for (uint16_t ledIndex = 0; ledIndex < pixelsToRender; ledIndex++) {
                 FataMorganaColor color = sampleLine(false, mapping.columnIndex, ledIndex,
                                                      mapping.linePixels, mapping.sampleMode);
-                _strip.setPixelColor(ledIndex, toNeoPixelColor(color));
+                _strip.setPixelColor(ledIndex, toNeoPixelColor(color, mapping.gamma));
             }
         }
     } else {
@@ -252,7 +268,7 @@ void FataMorganaRenderer::renderFrame(const uint8_t* frameBuffer,
 
             // Get pixel color and set LED
             FataMorganaColor color = getPixelAt(sourceX, sourceY);
-            _strip.setPixelColor(static_cast<uint16_t>(ledIndex), toNeoPixelColor(color));
+            _strip.setPixelColor(static_cast<uint16_t>(ledIndex), toNeoPixelColor(color, mapping.gamma));
         }
     }
 

@@ -261,6 +261,10 @@ void FataMorganaClient::sendDiscoveryResponse(IPAddress serverIP, uint16_t serve
     response[62] = _lastFrameHeight & 0xFF;
     response[63] = (_lastFrameHeight >> 8) & 0xFF;
 
+    // Gamma correction (float, little-endian)
+    float gamma = _mapping.gamma;
+    memcpy(response + 64, &gamma, sizeof(float));
+
     // Send UDP packet
     _udp.beginPacket(serverIP, serverPort);
     _udp.write(response, sizeof(response));
@@ -396,6 +400,11 @@ void FataMorganaClient::setFlip(bool x, bool y, bool z) {
 
 void FataMorganaClient::setBrightness(uint8_t brightness) {
     _strip.setBrightness(brightness);
+}
+
+void FataMorganaClient::setGamma(float gamma) {
+    _mapping.gamma = gamma;
+    fatamorgana_sanitizeMapping(_mapping, _ledCount);
 }
 
 bool FataMorganaClient::reRenderLastFrame() {

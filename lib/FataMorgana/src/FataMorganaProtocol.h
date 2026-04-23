@@ -87,7 +87,7 @@ constexpr uint8_t FATAMORGANA_RGB565 = 1;
 // ============================================================================
 
 /** Size of binary discovery response packet */
-constexpr size_t FATAMORGANA_DISCOVERY_RESPONSE_SIZE = 64;
+constexpr size_t FATAMORGANA_DISCOVERY_RESPONSE_SIZE = 68;
 
 /** Magic bytes for discovery response validation: "FATA" */
 constexpr uint32_t FATAMORGANA_MAGIC_BYTES = 0x46415441;

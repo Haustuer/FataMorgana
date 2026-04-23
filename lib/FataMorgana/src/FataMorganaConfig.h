@@ -99,6 +99,9 @@ struct FataMorganaMapping {
     bool flipY;                  ///< Flip vertically (mirror across horizontal axis)
     bool flipZ;                  ///< Flip diagonally (transpose/swap X and Y)
 
+    // Color correction
+    float gamma;                 ///< Gamma correction (1.0=linear, 2.2=standard, 2.8=typical LEDs)
+
     /** Default constructor - initializes to rectangle mode at origin */
     FataMorganaMapping()
         : mode(FATAMORGANA_MAPPING_RECTANGLE),
@@ -114,7 +117,8 @@ struct FataMorganaMapping {
           rotation(0),
           flipX(false),
           flipY(false),
-          flipZ(false) {}
+          flipZ(false),
+          gamma(2.2f) {}
 };
 
 // ============================================================================
@@ -213,6 +217,14 @@ inline void fatamorgana_sanitizeMapping(FataMorganaMapping& config, uint16_t led
     // Validate serpentine mode
     if (config.serpentine > FATAMORGANA_SERPENTINE_VERTICAL) {
         config.serpentine = FATAMORGANA_SERPENTINE_NONE;
+    }
+
+    // Validate gamma (1.0 to 3.5 is reasonable range)
+    if (config.gamma < 1.0f) {
+        config.gamma = 1.0f;
+    }
+    if (config.gamma > 3.5f) {
+        config.gamma = 3.5f;
     }
 }
 

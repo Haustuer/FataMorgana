@@ -109,6 +109,12 @@ public:
     void setBrightness(uint8_t brightness);
 
     /**
+     * Set gamma correction
+     * @param gamma Gamma value (1.0=linear, 2.2=standard, 2.8=typical LEDs, range 1.0-3.5)
+     */
+    void setGamma(float gamma);
+
+    /**
      * Get current mapping configuration
      * @return Reference to mapping configuration
      */

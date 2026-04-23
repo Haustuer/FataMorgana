@@ -160,6 +160,7 @@ String FataMorganaWebUI::buildConfigJson() {
     doc["flipX"] = mapping.flipX;
     doc["flipY"] = mapping.flipY;
     doc["flipZ"] = mapping.flipZ;
+    doc["gamma"] = mapping.gamma;
     doc["ledCount"] = _client.getStrip().numPixels();
 
     String json;
@@ -235,6 +236,10 @@ void FataMorganaWebUI::handleSetConfig() {
             doc["flipY"] | false,
             doc["flipZ"] | false
         );
+    }
+
+    if (doc["gamma"].is<float>()) {
+        _client.setGamma(doc["gamma"]);
     }
 
     // Re-render last frame with new settings for immediate visual feedback

@@ -133,9 +133,10 @@ private:
                          bool flipZ) const;
 
     /**
-     * Convert FataMorganaColor to NeoPixel format
-     * @param color RGB color
-     * @return 32-bit NeoPixel color value
+     * Convert FataMorganaColor to NeoPixel format with gamma correction
+     * @param color RGB color (linear)
+     * @param gamma Gamma correction value
+     * @return 32-bit NeoPixel color value (gamma corrected)
      */
-    uint32_t toNeoPixelColor(const FataMorganaColor& color) const;
+    uint32_t toNeoPixelColor(const FataMorganaColor& color, float gamma) const;
 };
