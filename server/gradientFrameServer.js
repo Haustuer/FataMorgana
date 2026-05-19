@@ -1,6 +1,6 @@
 const express = require("express");
 const dgram = require("dgram");
-const path = require("path");
+const path = require("path");.11
 const os = require("os");
 const sharp = require("sharp");
 
@@ -113,8 +113,11 @@ receiveSocket.bind(RESPONSE_PORT, () => {
 
 // Parse binary discovery response
 function parseDiscoveryResponse(buffer) {
-  if (buffer.length !== 69) {
-    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 69)`);
+  const isLegacyResponse = buffer.length === 68;
+  const isCurrentResponse = buffer.length === 69;
+
+  if (!isLegacyResponse && !isCurrentResponse) {
+    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 68 or 69)`);
   }
 
   // Check magic bytes "FATA" (0x46415441)
@@ -173,8 +176,8 @@ function parseDiscoveryResponse(buffer) {
   // Gamma correction (float, little-endian)
   const gamma = buffer.readFloatLE(64);
 
-  // Out-of-bounds mode
-  const oobMode = buffer.readUInt8(68);
+  // Legacy responses end at gamma; newer responses append out-of-bounds mode.
+  const oobMode = isCurrentResponse ? buffer.readUInt8(68) : 0;
 
   const modeNames = ['row', 'column', 'rectangle'];
   const sampleModeNames = ['pixel', 'interpolated'];
@@ -256,10 +259,12 @@ receiveSocket.on("message", (msg, rinfo) => {
       leds: response.hardware.ledCount
     });
   } catch (error) {
-    logVerbose("Failed to parse discovery response", {
+    logWarning("Invalid discovery response received", {
       error: error.message,
       from: rinfo.address,
-      length: msg.length
+      port: rinfo.port,
+      length: msg.length,
+      preview: msg.subarray(0, Math.min(msg.length, 16)).toString("hex").toUpperCase()
     });
   }
 });
@@ -272,6 +277,11 @@ receiveSocket.on("error", (err) => {
 function log(message, data = {}) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${message}`, data);
+}
+
+function logWarning(message, data = {}) {
+  const timestamp = new Date().toISOString();
+  console.warn(`[${timestamp}] WARNING: ${message}`, data);
 }
 
 function logVerbose(message, data = {}) {
