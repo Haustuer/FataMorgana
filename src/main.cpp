@@ -21,7 +21,7 @@
 // ============================================================================
 
 constexpr uint8_t LED_PIN = 12;       // GPIO pin for LED data
-constexpr uint16_t LED_COUNT = 256;   // Total number of LEDs
+constexpr uint16_t LED_COUNT = 100;   // Total number of LEDs
 constexpr uint8_t LED_TYPE = NEO_GRB + NEO_KHZ800;  // NeoPixel type
 
 // ============================================================================
@@ -65,7 +65,7 @@ void setup() {
   }
 
   // Configure default mapping (Rectangle mode)
-  client.setRectangle(0, 0, 16, 16);
+   client.setRowMapping(1, LED_COUNT);  // Row 5, all LEDs
   client.setSerpentine(SERPENTINE_HORIZONTAL);
   client.setRotation(0);
   client.setFlip(false, false, false);
@@ -84,6 +84,7 @@ void setup() {
   Serial.println(F("====================================="));
   Serial.println(F("Ready to receive frames!"));
   Serial.println(F("====================================="));
+
 }
 
 // ============================================================================
