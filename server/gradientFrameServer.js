@@ -1,7 +1,8 @@
 const express = require("express");
 const dgram = require("dgram");
-const path = require("path");
+const path = require("path");.11
 const os = require("os");
+const sharp = require("sharp");
 
 const app = express();
 
@@ -33,6 +34,7 @@ const FRAME_TYPE_IMAGE_CONTINUATION = 2; // Subsequent packets of an image frame
 const CONFIG_SUBTYPE_DISCOVERY = 0;     // Discovery request
 const CONFIG_SUBTYPE_SET_MAPPING = 1;   // Set device mapping (future)
 const CONFIG_SUBTYPE_SET_BRIGHTNESS = 2; // Set brightness (future)
+const CONFIG_SUBTYPE_IDENTIFY = 3;      // Identify device (flash LEDs)
 
 // RGB Types (RGB565 uses little-endian byte order)
 const RGB332 = 0; // 3 bits red, 3 bits green, 2 bits blue (1 byte per pixel)
@@ -59,12 +61,20 @@ let lastSendResult = {
   packetBytes: [],
 };
 
+// Store last frame for visualizer
+let lastFrameData = {
+  width: 0,
+  height: 0,
+  rgbType: RGB332,
+  pixels: null, // Buffer of pixel data
+};
+
 // Discovery state
 const discoveredDevices = new Map(); // key: IP address, value: device info
 let lastDiscoveryTime = null;
 let discoveryInProgress = false;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, "gradient-frame-public")));
 
 // Get server IP address
@@ -103,8 +113,11 @@ receiveSocket.bind(RESPONSE_PORT, () => {
 
 // Parse binary discovery response
 function parseDiscoveryResponse(buffer) {
-  if (buffer.length !== 64) {
-    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 64)`);
+  const isLegacyResponse = buffer.length === 68;
+  const isCurrentResponse = buffer.length === 69;
+
+  if (!isLegacyResponse && !isCurrentResponse) {
+    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 68 or 69)`);
   }
 
   // Check magic bytes "FATA" (0x46415441)
@@ -160,9 +173,16 @@ function parseDiscoveryResponse(buffer) {
   const lastFrameWidth = buffer.readUInt16LE(60);
   const lastFrameHeight = buffer.readUInt16LE(62);
 
+  // Gamma correction (float, little-endian)
+  const gamma = buffer.readFloatLE(64);
+
+  // Legacy responses end at gamma; newer responses append out-of-bounds mode.
+  const oobMode = isCurrentResponse ? buffer.readUInt8(68) : 0;
+
   const modeNames = ['row', 'column', 'rectangle'];
   const sampleModeNames = ['pixel', 'interpolated'];
   const serpentineModeNames = ['none', 'horizontal', 'vertical'];
+  const oobModeNames = ['black', 'clamp', 'mirror'];
 
   return {
     protocol: 'FataMorgana',
@@ -199,7 +219,10 @@ function parseDiscoveryResponse(buffer) {
       rotation,
       flipX,
       flipY,
-      flipZ
+      flipZ,
+      gamma,
+      oobMode,
+      oobModeName: oobModeNames[oobMode] || 'unknown'
     },
     status: {
       lastFrameCounter: 0,
@@ -236,10 +259,12 @@ receiveSocket.on("message", (msg, rinfo) => {
       leds: response.hardware.ledCount
     });
   } catch (error) {
-    logVerbose("Failed to parse discovery response", {
+    logWarning("Invalid discovery response received", {
       error: error.message,
       from: rinfo.address,
-      length: msg.length
+      port: rinfo.port,
+      length: msg.length,
+      preview: msg.subarray(0, Math.min(msg.length, 16)).toString("hex").toUpperCase()
     });
   }
 });
@@ -252,6 +277,11 @@ receiveSocket.on("error", (err) => {
 function log(message, data = {}) {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${message}`, data);
+}
+
+function logWarning(message, data = {}) {
+  const timestamp = new Date().toISOString();
+  console.warn(`[${timestamp}] WARNING: ${message}`, data);
 }
 
 function logVerbose(message, data = {}) {
@@ -516,6 +546,14 @@ async function sendFrame({ width, height, rgbType, pattern = PATTERN_GRADIENT, p
     elapsedMs: elapsed,
   };
 
+  // Store frame data for visualizer
+  lastFrameData = {
+    width,
+    height,
+    rgbType,
+    pixels: payload,
+  };
+
   log(`Frame #${frameCounter} sent`, { elapsedMs: elapsed });
 
   return lastSendResult;
@@ -579,6 +617,62 @@ async function sendDiscoveryRequest() {
   } catch (error) {
     discoveryInProgress = false;
     log("Discovery failed", { error: error.message });
+    return { ok: false, error: error.message };
+  }
+}
+
+// Send identify request to a specific device
+async function sendIdentifyRequest({ targetType, targetValue, flashCount = 3 }) {
+  // targetType: 0 = IP address, 1 = Chip ID
+  // targetValue: IP address string or chip ID number
+  // flashCount: number of times to flash (1-255)
+
+  const packet = Buffer.alloc(14); // 8 byte header + 6 byte payload
+
+  // Header
+  packet[0] = FRAME_TYPE_CONFIG;           // Type = 0
+  packet[1] = nextFrameCounter;            // Frame counter
+  packet[2] = 0;                           // Chunk index = 0
+  packet[3] = CONFIG_SUBTYPE_IDENTIFY;     // SubType = 3 (identify)
+  packet.writeUInt16LE(0, 4);              // Reserved
+  packet.writeUInt16LE(0, 6);              // Reserved
+
+  // Payload: Target type + Target value + Flash count
+  packet[8] = targetType; // 0 = IP, 1 = Chip ID
+
+  if (targetType === 0) {
+    // IP address (big-endian)
+    const ipParts = targetValue.split('.').map(Number);
+    packet[9] = ipParts[0];
+    packet[10] = ipParts[1];
+    packet[11] = ipParts[2];
+    packet[12] = ipParts[3];
+  } else {
+    // Chip ID (little-endian)
+    const chipId = typeof targetValue === 'string' ? parseInt(targetValue, 16) : targetValue;
+    packet.writeUInt32LE(chipId, 9);
+  }
+
+  packet[13] = Math.max(1, Math.min(255, flashCount)); // Flash count (1-255)
+
+  nextFrameCounter = (nextFrameCounter + 1) & 0xff;
+
+  log("Sending identify request", {
+    targetType: targetType === 0 ? 'IP' : 'Chip ID',
+    targetValue,
+    flashCount: packet[13]
+  });
+
+  try {
+    await sendUdpPacket(packet);
+    return {
+      ok: true,
+      targetType: targetType === 0 ? 'IP' : 'Chip ID',
+      targetValue,
+      flashCount: packet[13]
+    };
+  } catch (error) {
+    log("Identify request failed", { error: error.message });
     return { ok: false, error: error.message };
   }
 }
@@ -703,12 +797,252 @@ app.post("/api/frame", async (req, res) => {
   }
 });
 
+app.post("/api/frame/image", async (req, res) => {
+  try {
+    if (!req.body) {
+      res.status(400).json({ ok: false, error: 'No request body received' });
+      return;
+    }
+
+    const { image, rgbType = RGB332, targetWidth, targetHeight } = req.body;
+
+    if (!image) {
+      res.status(400).json({ ok: false, error: 'No image data provided in request body' });
+      return;
+    }
+
+    if (typeof image !== 'string') {
+      res.status(400).json({ ok: false, error: 'Image data must be a base64 string' });
+      return;
+    }
+
+    if (!image.startsWith('data:image/')) {
+      res.status(400).json({ ok: false, error: 'Image must be in data URL format (data:image/...)' });
+      return;
+    }
+
+    // Parse base64 image data
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+
+    if (base64Data.length === 0) {
+      res.status(400).json({ ok: false, error: 'Image data is empty' });
+      return;
+    }
+
+    log("Processing image upload", {
+      dataUrlLength: image.length,
+      base64Length: base64Data.length,
+      targetWidth,
+      targetHeight,
+      rgbType: rgbTypeName(rgbType)
+    });
+
+    let buffer;
+    try {
+      buffer = Buffer.from(base64Data, 'base64');
+    } catch (error) {
+      res.status(400).json({ ok: false, error: 'Failed to decode base64 image data: ' + error.message });
+      return;
+    }
+
+    // Load image with sharp
+    let sharpImage;
+    try {
+      sharpImage = sharp(buffer);
+    } catch (error) {
+      res.status(400).json({ ok: false, error: 'Failed to load image: ' + error.message });
+      return;
+    }
+
+    // Resize if target dimensions provided
+    if (targetWidth && targetHeight) {
+      try {
+        sharpImage = sharpImage.resize(targetWidth, targetHeight, {
+          fit: 'fill',
+          kernel: 'lanczos3'  // High-quality downsampling
+        });
+      } catch (error) {
+        res.status(400).json({ ok: false, error: 'Failed to resize image: ' + error.message });
+        return;
+      }
+    }
+
+    let metadata;
+    try {
+      metadata = await sharpImage.metadata();
+    } catch (error) {
+      res.status(400).json({ ok: false, error: 'Failed to read image metadata: ' + error.message });
+      return;
+    }
+
+    const width = targetWidth || metadata.width;
+    const height = targetHeight || metadata.height;
+
+    const payloadBytes = width * height * bytesPerPixel(rgbType);
+
+    if (payloadBytes > MAX_FRAME_BYTES) {
+      res.status(400).json({
+        ok: false,
+        error: `Image too large for firmware buffer (${payloadBytes} > ${MAX_FRAME_BYTES} bytes). Resize to max ${Math.floor(MAX_FRAME_BYTES / bytesPerPixel(rgbType))} pixels.`,
+        payloadBytes,
+        maxFrameBytes: MAX_FRAME_BYTES,
+      });
+      return;
+    }
+
+    // Get raw RGBA pixel data
+    let rgbaBuffer;
+    try {
+      const result = await sharpImage
+        .raw()
+        .ensureAlpha()
+        .toBuffer({ resolveWithObject: true });
+      rgbaBuffer = result.data;
+    } catch (error) {
+      res.status(500).json({ ok: false, error: 'Failed to extract pixel data: ' + error.message });
+      return;
+    }
+
+    // Convert RGBA to target format
+    const pixelBuffer = Buffer.alloc(payloadBytes);
+    let bufferIndex = 0;
+
+    for (let i = 0; i < rgbaBuffer.length; i += 4) {
+      const r = rgbaBuffer[i];
+      const g = rgbaBuffer[i + 1];
+      const b = rgbaBuffer[i + 2];
+      // const a = rgbaBuffer[i + 3]; // alpha channel (unused for now)
+
+      if (rgbType === RGB332) {
+        // 3 bits red, 3 bits green, 2 bits blue
+        const r3 = Math.floor((r / 255) * 7);
+        const g3 = Math.floor((g / 255) * 7);
+        const b2 = Math.floor((b / 255) * 3);
+        pixelBuffer[bufferIndex++] = (r3 << 5) | (g3 << 2) | b2;
+      } else {
+        // RGB565: 5 bits red, 6 bits green, 5 bits blue (little-endian)
+        const r5 = Math.floor((r / 255) * 31);
+        const g6 = Math.floor((g / 255) * 63);
+        const b5 = Math.floor((b / 255) * 31);
+        const rgb565 = (r5 << 11) | (g6 << 5) | b5;
+        pixelBuffer[bufferIndex++] = rgb565 & 0xFF; // Low byte
+        pixelBuffer[bufferIndex++] = (rgb565 >> 8) & 0xFF; // High byte
+      }
+    }
+
+    // Send the frame
+    const startTime = Date.now();
+    const chunkCount = Math.ceil(payloadBytes / MAX_PAYLOAD_SIZE);
+    const frameCounter = nextFrameCounter++;
+
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+      const offset = chunkIndex * MAX_PAYLOAD_SIZE;
+      const remaining = payloadBytes - offset;
+      const chunkSize = remaining < MAX_PAYLOAD_SIZE ? remaining : MAX_PAYLOAD_SIZE;
+      const payload = pixelBuffer.subarray(offset, offset + chunkSize);
+
+      const frameType = chunkIndex === 0 ? FRAME_TYPE_IMAGE_START : FRAME_TYPE_IMAGE_CONTINUATION;
+      const header = Buffer.alloc(HEADER_SIZE);
+      header[0] = frameType;
+      header[1] = frameCounter;
+      header[2] = chunkIndex;
+      header[3] = rgbType;
+      header.writeUInt16LE(width, 4);
+      header.writeUInt16LE(height, 6);
+
+      const packet = Buffer.concat([header, payload]);
+      await sendUdpPacket(packet);
+
+      if (chunkIndex < chunkCount - 1 && INTER_PACKET_DELAY_MS > 0) {
+        await delay(INTER_PACKET_DELAY_MS);
+      }
+    }
+
+    const elapsedMs = Date.now() - startTime;
+
+    // Store frame data for visualizer
+    lastFrameData = {
+      width,
+      height,
+      rgbType,
+      pixels: pixelBuffer,
+    };
+
+    log("Image frame sent", {
+      frameCounter,
+      width,
+      height,
+      resized: targetWidth && targetHeight ? `${targetWidth}×${targetHeight}` : 'no',
+      rgbType: rgbTypeName(rgbType),
+      chunkCount,
+      payloadBytes,
+      elapsedMs
+    });
+
+    res.json({
+      ok: true,
+      frameCounter,
+      width,
+      height,
+      rgbType,
+      chunkCount,
+      payloadBytes,
+      elapsedMs
+    });
+
+  } catch (error) {
+    log("Error sending image", {
+      error: error.message,
+      stack: error.stack,
+      hasBody: !!req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : []
+    });
+    res.status(500).json({ ok: false, error: error.message || 'Unknown error processing image' });
+  }
+});
+
 app.post("/api/discover", async (_req, res) => {
   try {
     const result = await sendDiscoveryRequest();
     res.json(result);
   } catch (error) {
     log("Discovery error", { error: error.message });
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post("/api/identify", async (req, res) => {
+  try {
+    const { ip, chipId, flashCount = 3 } = req.body;
+
+    if (!ip && !chipId) {
+      res.status(400).json({
+        ok: false,
+        error: "Must provide either 'ip' or 'chipId' parameter"
+      });
+      return;
+    }
+
+    if (ip && chipId) {
+      res.status(400).json({
+        ok: false,
+        error: "Provide only one of 'ip' or 'chipId', not both"
+      });
+      return;
+    }
+
+    const targetType = ip ? 0 : 1;
+    const targetValue = ip || chipId;
+
+    const result = await sendIdentifyRequest({
+      targetType,
+      targetValue,
+      flashCount
+    });
+
+    res.json(result);
+  } catch (error) {
+    log("Identify error", { error: error.message });
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -733,6 +1067,25 @@ app.get("/api/devices", (_req, res) => {
     lastDiscovery: lastDiscoveryTime,
     deviceCount: devices.length,
     devices
+  });
+});
+
+app.get("/api/frame/last", (_req, res) => {
+  if (!lastFrameData.pixels) {
+    res.json({
+      ok: false,
+      message: 'No frame data available'
+    });
+    return;
+  }
+
+  // Convert pixel buffer to base64 for transmission
+  res.json({
+    ok: true,
+    width: lastFrameData.width,
+    height: lastFrameData.height,
+    rgbType: lastFrameData.rgbType,
+    pixels: lastFrameData.pixels.toString('base64')
   });
 });
 
@@ -785,6 +1138,7 @@ app.listen(HTTP_PORT, () => {
   console.log("║   GET  /api/config    - Server configuration             ║");
   console.log("║   POST /api/frame     - Send image frame                 ║");
   console.log("║   POST /api/discover  - Discover devices                 ║");
+  console.log("║   POST /api/identify  - Identify device (flash LEDs)     ║");
   console.log("║   GET  /api/devices   - List discovered devices          ║");
   console.log("║   GET  /api/coverage  - Calculate image coverage         ║");
   console.log("╠══════════════════════════════════════════════════════════╣");
@@ -792,6 +1146,11 @@ app.listen(HTTP_PORT, () => {
   console.log("║                                                          ║");
   console.log("║ # Discover devices                                       ║");
   console.log(`║ curl -X POST http://localhost:${HTTP_PORT}/api/discover           ║`);
+  console.log("║                                                          ║");
+  console.log("║ # Identify device by IP (flash 5 times)                 ║");
+  console.log(`║ curl -X POST http://localhost:${HTTP_PORT}/api/identify \\        ║`);
+  console.log("║   -H 'Content-Type: application/json' \\                 ║");
+  console.log("║   -d '{\"ip\":\"192.168.1.100\",\"flashCount\":5}'          ║");
   console.log("║                                                          ║");
   console.log("║ # Send gradient frame                                    ║");
   console.log(`║ curl -X POST http://localhost:${HTTP_PORT}/api/frame \\          ║`);

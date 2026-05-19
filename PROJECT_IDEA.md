@@ -107,7 +107,7 @@ The image payload is expected to be in row-major order:
 - then all pixels of row `1`,
 - and so on until the full frame is transferred.
 
-For `FrameType = 0`, the payload contains configuration data instead of image pixels. The exact config payload format is still open and should be defined separately.
+For `FrameType = 0`, the payload contains configuration data instead of image pixels. See Config Frame Format below.
 
 ### Payload Size
 
@@ -162,6 +162,86 @@ Packet sizes for that example:
 
 The next exact `16:9` size would be `48 x 27`, which has `1296` pixels and does not fit into the practical `1200`-byte target.
 
+### Config Frame Format (FrameType = 0)
+
+For config frames, byte `3` (normally `RGBType`) is repurposed as `ConfigSubType`:
+
+| ConfigSubType | Name | Description |
+| --- | --- | --- |
+| `0` | Discovery | Request all devices to respond with their configuration |
+| `1` | Set Mapping | Set device mapping mode (future) |
+| `2` | Set Brightness | Set LED brightness (future) |
+| `3` | Identify | Make a specific device flash its LEDs |
+
+#### Discovery Frame (SubType = 0)
+
+Header bytes 0-7 as normal, with `FrameType = 0` and `ConfigSubType = 0`.
+
+Payload (6 bytes starting at byte 8):
+
+| Byte Offset | Size | Name | Description |
+| --- | --- | --- | --- |
+| `8-11` | 4 bytes | `ServerIP` | Server IP address (big-endian, network byte order) |
+| `12-13` | 2 bytes | `ResponsePort` | UDP port for device responses (big-endian) |
+
+Devices respond via unicast UDP to the specified IP and port with a 69-byte binary response containing their configuration.
+
+**Discovery Response Format (69 bytes):**
+
+| Byte Range | Size | Description |
+| --- | --- | --- |
+| 0-3 | 4 bytes | Magic bytes "FATA" (0x46415441) |
+| 4 | 1 byte | Protocol version |
+| 5 | 1 byte | Response type (0x01 = discovery) |
+| 6-7 | 2 bytes | Reserved |
+| 8-11 | 4 bytes | Device IP address (big-endian) |
+| 12-17 | 6 bytes | MAC address |
+| 18-21 | 4 bytes | Chip ID (little-endian) |
+| 22-25 | 4 bytes | Uptime in milliseconds (little-endian) |
+| 26-27 | 2 bytes | LED count (little-endian) |
+| 28 | 1 byte | LED pin number |
+| 29 | 1 byte | Brightness (0-255) |
+| 30 | 1 byte | Firmware major version |
+| 31 | 1 byte | Firmware minor version |
+| 32 | 1 byte | Mapping mode (0=row, 1=column, 2=rectangle) |
+| 33 | 1 byte | Sample mode (0=pixel, 1=interpolated) |
+| 34-35 | 2 bytes | Row/column index (little-endian) |
+| 36-37 | 2 bytes | Line pixels count (little-endian) |
+| 38-39 | 2 bytes | Rectangle X offset (little-endian) |
+| 40-41 | 2 bytes | Rectangle Y offset (little-endian) |
+| 42-43 | 2 bytes | Rectangle width (little-endian) |
+| 44-45 | 2 bytes | Rectangle height (little-endian) |
+| 46 | 1 byte | Serpentine mode (0=none, 1=horizontal, 2=vertical) |
+| 47 | 1 byte | Transform byte (bits 0-1: rotation, bit 2: flipX, bit 3: flipY, bit 4: flipZ) |
+| 48-51 | 4 bytes | Accepted packets count (little-endian) |
+| 52-55 | 4 bytes | Rejected packets count (little-endian) |
+| 56-59 | 4 bytes | Rendered frames count (little-endian) |
+| 60-61 | 2 bytes | Last frame width (little-endian) |
+| 62-63 | 2 bytes | Last frame height (little-endian) |
+| 64-67 | 4 bytes | Gamma correction (float, little-endian) |
+| 68 | 1 byte | Out-of-bounds mode (0=black, 1=clamp, 2=mirror) |
+
+#### Identify Frame (SubType = 3)
+
+Header bytes 0-7 as normal, with `FrameType = 0` and `ConfigSubType = 3`.
+
+Payload (6 bytes starting at byte 8):
+
+| Byte Offset | Size | Name | Description |
+| --- | --- | --- | --- |
+| `8` | 1 byte | `TargetType` | `0 = IP address`, `1 = Chip ID` |
+| `9-12` | 4 bytes | `TargetValue` | If TargetType=0: IP address (big-endian). If TargetType=1: Chip ID (little-endian) |
+| `13` | 1 byte | `FlashCount` | Number of times to flash LEDs (1-255) |
+
+The targeted device will flash its LEDs the specified number of times to help identify its physical location.
+
+**Behavior:**
+- Each device checks if it matches the target (by IP or Chip ID)
+- If matched, the device flashes all LEDs white for `FlashCount` times
+- Each flash cycle: 200ms on (white), 200ms off (black)
+- After flashing, the device restores the previous display by re-rendering the last frame
+- The server sends this as a multicast packet, but only the targeted device responds visually
+
 ### Notes
 
 - Width is stored as 2 bytes, so it can represent values up to `65535`.
@@ -193,16 +273,82 @@ Another ESP is configured to display a 10x10 square starting at coordinate `(20,
 
 Each device reads the same incoming image frame, extracts only its assigned section, and renders that section onto its LEDs.
 
+## Implemented Features
+
+### Discovery Protocol
+The server can broadcast a discovery request to find all devices on the network. Each device responds with its configuration, including:
+- IP address and MAC address
+- Chip ID and firmware version
+- LED count and brightness
+- Mapping mode and configuration
+- Out-of-bounds handling mode
+- Statistics (packets accepted/rejected, frames rendered)
+
+### Identify Feature
+The server can send an identify request to make a specific device flash its LEDs. This helps physically locate devices:
+- Target by IP address or Chip ID
+- Configurable flash count (1-255 times)
+- Device flashes white then restores previous display
+
+### Out-of-Bounds Handling
+When a device requests pixels outside the transmitted frame boundaries, the system handles it according to the configured mode.
+
+**Configuration:**
+- Can be set via device web interface at `http://<device-ip>`
+- Can be set programmatically via `client.setOOBMode(mode)`
+- Included in discovery response (byte 68)
+- Auto-saves when changed in web UI
+
+**Black Mode (0)** - Default, safe option
+- Returns black (0,0,0) for any out-of-bounds pixel
+- Useful when devices should only show transmitted content
+- No visual artifacts at boundaries
+
+**Clamp Mode (1)** - Edge repeat/hold
+- Uses the nearest border pixel for out-of-bounds requests
+- Top edge pixels extend upward, bottom pixels extend downward
+- Left edge pixels extend leftward, right edge pixels extend rightward
+- Creates a "stretched edge" effect
+- Useful for smooth gradients or patterns that should extend
+
+**Mirror Mode (2)** - Boundary reflection
+- Reflects/mirrors the image at boundaries
+- A pixel at position -1 becomes position 1 (mirrored)
+- A pixel at position width+1 becomes position width-1 (mirrored)
+- Creates symmetric reflections at edges
+- Useful for patterns that should tile seamlessly
+- Falls back to black if mirrored position is also out-of-bounds
+
 ## Open Points For Review
 
 These are the main points we should review together:
 
-1. Should `RGB565` use little-endian or big-endian byte order?
-2. What should the payload format of a `config frame` be?
+1. ✅ ~~Should `RGB565` use little-endian or big-endian byte order?~~ **Resolved: Uses little-endian**
+2. ✅ ~~What should the payload format of a `config frame` be?~~ **Resolved: See Config Frame Format section above**
 3. Should the ESP configuration page be read-only, or should it also allow editing settings?
-4. How should a 2D selected region be mapped onto a 1D LED strip?
+4. ✅ ~~How should a 2D selected region be mapped onto a 1D LED strip?~~ **Resolved: Supports row, column, and rectangle modes with serpentine and transform options**
 5. Should the server send full images every time, or only changed areas?
-6. Should multiple ESPs all listen to the same UDP stream, or should each device get its own stream?
+6. ✅ ~~Should multiple ESPs all listen to the same UDP stream, or should each device get its own stream?~~ **Resolved: All devices listen to the same multicast stream and extract their region**
+
+## Server API Endpoints
+
+The server provides a web-based control panel and REST API:
+
+### Web Interface
+- **Control Panel**: Send test patterns (gradient, solid, checkerboard, rainbow)
+- **Image Upload**: Upload and send custom images
+- **Device Discovery**: Find and manage devices on the network
+- **Visualizer**: See the last sent frame with device regions overlaid
+- **Coverage Map**: Calculate which pixels are covered by which devices
+
+### API Endpoints
+- `GET /api/config` - Get server configuration and settings
+- `POST /api/frame` - Send a frame with test pattern
+- `POST /api/frame/image` - Send a custom image
+- `POST /api/discover` - Discover all devices on network
+- `POST /api/identify` - Identify a specific device by IP or Chip ID
+- `GET /api/devices` - List all discovered devices
+- `GET /api/coverage` - Calculate coverage for image dimensions
 
 ## Short Goal Statement
 
@@ -210,6 +356,7 @@ The goal is to build a system where:
 
 - the server broadcasts image frames over UDP,
 - ESP devices listen and render their assigned section,
-- and each ESP exposes a web page showing how it is configured to interpret those frames.
+- each ESP exposes a web page showing how it is configured to interpret those frames,
+- and the server provides a control panel to manage devices and send images.
 
 

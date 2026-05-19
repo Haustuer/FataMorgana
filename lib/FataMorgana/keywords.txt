@@ -1,0 +1,56 @@
+#######################################
+# FataMorgana Library Keywords
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+FataMorgana	KEYWORD1
+FataMorganaClient	KEYWORD1
+FataMorganaRenderer	KEYWORD1
+FataMorganaWebUI	KEYWORD1
+FataMorganaConfig	KEYWORD1
+MappingConfig	KEYWORD1
+RgbColor	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+loop	KEYWORD2
+setMappingMode	KEYWORD2
+setRectangle	KEYWORD2
+setSerpentine	KEYWORD2
+setRotation	KEYWORD2
+setFlip	KEYWORD2
+setRowMapping	KEYWORD2
+setColumnMapping	KEYWORD2
+setSampleMode	KEYWORD2
+getRenderedFrames	KEYWORD2
+getAcceptedPackets	KEYWORD2
+getRejectedPackets	KEYWORD2
+isFrameInProgress	KEYWORD2
+getLastFrameWidth	KEYWORD2
+getLastFrameHeight	KEYWORD2
+enableWebSocket	KEYWORD2
+renderFrame	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+MAPPING_ROW	LITERAL1
+MAPPING_COLUMN	LITERAL1
+MAPPING_RECTANGLE	LITERAL1
+SAMPLE_PIXEL	LITERAL1
+SAMPLE_INTERPOLATED	LITERAL1
+SERPENTINE_NONE	LITERAL1
+SERPENTINE_HORIZONTAL	LITERAL1
+SERPENTINE_VERTICAL	LITERAL1
+RGB332	LITERAL1
+RGB565	LITERAL1
+FRAME_TYPE_CONFIG	LITERAL1
+FRAME_TYPE_IMAGE_START	LITERAL1
+FRAME_TYPE_IMAGE_CONTINUATION	LITERAL1

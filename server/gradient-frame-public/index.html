@@ -282,6 +282,28 @@
       100% { transform: rotate(360deg); }
     }
 
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
+
     .error {
       background: #f8d7da;
       color: #721c24;
@@ -354,6 +376,68 @@
       margin-bottom: 20px;
       opacity: 0.3;
     }
+
+    #visualizerCanvas {
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      background: #000;
+      display: block;
+      margin: 20px auto;
+      max-width: 100%;
+      image-rendering: pixelated;
+    }
+
+    .drop-zone {
+      border: 3px dashed #667eea;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      background: #f9f9f9;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+
+    .drop-zone:hover {
+      background: #f0f0ff;
+      border-color: #764ba2;
+    }
+
+    .drop-zone.drag-over {
+      background: #e6e6ff;
+      border-color: #764ba2;
+      transform: scale(1.02);
+    }
+
+    .drop-zone input[type="file"] {
+      display: none;
+    }
+
+    .drop-zone-icon {
+      font-size: 3em;
+      margin-bottom: 15px;
+    }
+
+    #uploadPreview {
+      max-width: 100%;
+      max-height: 400px;
+      border-radius: 8px;
+      margin: 20px auto;
+      display: block;
+    }
+
+    .vis-controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .vis-controls input[type="range"] {
+      flex: 1;
+      min-width: 200px;
+    }
   </style>
 </head>
 <body>
@@ -366,8 +450,10 @@
     <div class="tabs">
       <button class="tab active" onclick="openTab(event, 'overview')">Overview</button>
       <button class="tab" onclick="openTab(event, 'devices')">Devices</button>
+      <button class="tab" onclick="openTab(event, 'visualizer')">Visualizer</button>
       <button class="tab" onclick="openTab(event, 'coverage')">Coverage</button>
       <button class="tab" onclick="openTab(event, 'control')">Control</button>
+      <button class="tab" onclick="openTab(event, 'animation')">Animation</button>
       <button class="tab" onclick="openTab(event, 'about')">About</button>
     </div>
 
@@ -430,6 +516,19 @@
       <div id="devicesList"></div>
     </div>
 
+    <div id="visualizer" class="tab-content">
+      <div class="card">
+        <h3>Live Visualizer</h3>
+        <p>Visual representation of the last sent frame with device regions overlaid.</p>
+        <div class="vis-controls">
+          <label>Zoom: <input type="range" id="visZoom" min="1" max="20" value="8" oninput="updateVisualizer()"></label>
+          <label><input type="checkbox" id="visShowLabels" checked onchange="updateVisualizer()"> Show Labels</label>
+          <button class="button secondary" onclick="updateVisualizer()">🔄 Refresh</button>
+        </div>
+        <canvas id="visualizerCanvas" width="800" height="600"></canvas>
+      </div>
+    </div>
+
     <div id="coverage" class="tab-content">
       <div class="card">
         <h3>Image Coverage Map</h3>
@@ -451,12 +550,22 @@
     <div id="control" class="tab-content">
       <div class="card">
         <h3>Send Frame</h3>
-        <div class="form-row">
+        <div class="form-row" id="patternControls">
           <div class="form-group">
+            <label>Pattern</label>
+            <select id="pattern" onchange="togglePatternControls()">
+              <option value="gradient">Gradient</option>
+              <option value="solid">Solid Color</option>
+              <option value="checkerboard">Checkerboard</option>
+              <option value="rainbow">Rainbow</option>
+              <option value="image">Image (Upload)</option>
+            </select>
+          </div>
+          <div class="form-group" id="widthControl">
             <label>Width</label>
             <input type="number" id="frameWidth" value="24" min="1" max="100">
           </div>
-          <div class="form-group">
+          <div class="form-group" id="heightControl">
             <label>Height</label>
             <input type="number" id="frameHeight" value="100" min="1" max="100">
           </div>
@@ -467,20 +576,116 @@
               <option value="1">RGB565 (2 bytes/pixel)</option>
             </select>
           </div>
-          <div class="form-group">
-            <label>Pattern</label>
-            <select id="pattern">
-              <option value="gradient">Gradient</option>
-              <option value="solid">Solid Color</option>
-              <option value="checkerboard">Checkerboard</option>
-              <option value="rainbow">Rainbow</option>
-            </select>
+        </div>
+
+        <!-- Image upload section (shown when pattern = image) -->
+        <div id="imageUploadSection" style="display: none; margin-top: 20px;">
+          <div class="drop-zone" id="dropZone" onclick="document.getElementById('imageUpload').click()">
+            <div class="drop-zone-icon">🖼️</div>
+            <h4>Drop image here or click to browse</h4>
+            <p style="color: #666; margin-top: 10px;">Supports: JPG, PNG, GIF</p>
+            <input type="file" id="imageUpload" accept="image/*">
+          </div>
+          <img id="uploadPreview" style="display: none;">
+
+          <div id="imageResizeControls" style="display: none; margin-top: 20px;">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Target Width</label>
+                <input type="number" id="imageWidth" min="1" max="200" oninput="handleImageDimensionChange('width')">
+              </div>
+              <div class="form-group">
+                <label>Target Height</label>
+                <input type="number" id="imageHeight" min="1" max="200" oninput="handleImageDimensionChange('height')">
+              </div>
+              <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                  <input type="checkbox" id="lockAspectRatio" checked onchange="lockAspectRatioChanged()">
+                  <span>Lock Aspect Ratio</span>
+                </label>
+                <div style="font-size: 0.85em; color: #666; margin-top: 5px;">
+                  Original: <span id="originalDimensions">-</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <button class="button success" onclick="sendFrame()">🎨 Send Frame</button>
+
+        <button class="button success" id="sendFrameBtn" onclick="sendFrame()">🎨 Send Frame</button>
+        <button class="button success" id="sendImageBtn" style="display: none;" onclick="sendImage()">🚀 Send Image</button>
       </div>
 
       <div id="frameResult"></div>
+    </div>
+
+    <div id="animation" class="tab-content">
+      <div class="card">
+        <h3>Rainbow Animation</h3>
+        <p>Animated rainbow pattern cycling through colors continuously.</p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Width</label>
+            <input type="number" id="animWidth" value="24" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>Height</label>
+            <input type="number" id="animHeight" value="100" min="1" max="100">
+          </div>
+          <div class="form-group">
+            <label>RGB Encoding</label>
+            <select id="animRgbType">
+              <option value="0">RGB332 (1 byte/pixel)</option>
+              <option value="1">RGB565 (2 bytes/pixel)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 20px;">
+          <label style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <span>Frame Rate: <strong id="fpsValue">30</strong> FPS</span>
+            <span style="color: #666; font-size: 0.9em;">(<span id="frameTimeValue">33</span> ms per frame)</span>
+          </label>
+          <input type="range" id="animFps" min="1" max="80" value="30" oninput="updateFpsDisplay()" style="width: 100%;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: #666; margin-top: 5px;">
+            <span>1 FPS</span>
+            <span>80 FPS</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+          <button class="button success" id="startAnimBtn" onclick="startAnimation()">▶️ Start Animation</button>
+          <button class="button error" id="stopAnimBtn" onclick="stopAnimation()" disabled>⏹️ Stop Animation</button>
+        </div>
+
+        <div id="animationStats" style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 6px; display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+            <div>
+              <label style="font-size: 0.85em; color: #666;">Frames Sent</label>
+              <div style="font-size: 1.5em; font-weight: bold; color: #667eea;" id="animFramesSent">0</div>
+            </div>
+            <div>
+              <label style="font-size: 0.85em; color: #666;">Running Time</label>
+              <div style="font-size: 1.5em; font-weight: bold; color: #667eea;" id="animRunningTime">0s</div>
+            </div>
+            <div>
+              <label style="font-size: 0.85em; color: #666;">Actual FPS</label>
+              <div style="font-size: 1.5em; font-weight: bold; color: #667eea;" id="animActualFps">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="animationVisualizerCard" style="display: none;">
+        <h3>Live Preview</h3>
+        <p>Visual representation of the animation with device regions overlaid.</p>
+        <div class="vis-controls">
+          <label>Zoom: <input type="range" id="animVisZoom" min="1" max="20" value="8" oninput="updateAnimationVisualizer()"></label>
+          <label><input type="checkbox" id="animVisShowLabels" checked onchange="updateAnimationVisualizer()"> Show Labels</label>
+          <label><input type="checkbox" id="animVisAutoRefresh" checked> Auto Refresh</label>
+        </div>
+        <canvas id="animationVisualizerCanvas" width="800" height="600"></canvas>
+      </div>
     </div>
 
     <div id="about" class="tab-content">
@@ -525,8 +730,17 @@ POST /api/frame     - Send image frame</code></pre>
       evt.currentTarget.classList.add('active');
       document.getElementById(tabName).classList.add('active');
 
+      // Stop animation when switching away from animation tab
+      if (tabName !== 'animation' && animationRunning) {
+        stopAnimation();
+      }
+
       if (tabName === 'devices') loadDevices();
+      if (tabName === 'visualizer') updateVisualizer();
       if (tabName === 'coverage') loadCoverageData();
+      if (tabName === 'animation' && document.getElementById('animationVisualizerCard').style.display !== 'none') {
+        updateAnimationVisualizer();
+      }
     }
 
     async function loadServerConfig() {
@@ -585,6 +799,9 @@ POST /api/frame     - Send image frame</code></pre>
                 ${device.hostname || device.ip}
               </div>
               <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="button secondary" onclick="identifyDevice('${device.ip}', '${device.hostname || device.ip}')" style="padding: 8px 16px; font-size: 0.9em; margin: 0;">
+                  💡 Identify
+                </button>
                 <a href="http://${device.ip}" target="_blank" class="button" style="text-decoration: none; padding: 8px 16px; font-size: 0.9em; margin: 0;">
                   🌐 Open Device
                 </a>
@@ -641,6 +858,14 @@ POST /api/frame     - Send image frame</code></pre>
                   <label>Flip Z (Diagonal)</label>
                   <value>${device.mapping.flipZ ? 'Yes' : 'No'}</value>
                 </div>
+                <div class="device-detail">
+                  <label>Gamma Correction</label>
+                  <value>${device.mapping.gamma ? device.mapping.gamma.toFixed(2) : '2.2'}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Out-of-Bounds Mode</label>
+                  <value>${device.mapping.oobModeName || 'black'}</value>
+                </div>
               ` : ''}
               ${device.mapping.mode === 0 ? `
                 <div class="device-detail">
@@ -651,6 +876,10 @@ POST /api/frame     - Send image frame</code></pre>
                   <label>Line Pixels</label>
                   <value>${device.mapping.linePixels}</value>
                 </div>
+                <div class="device-detail">
+                  <label>Out-of-Bounds Mode</label>
+                  <value>${device.mapping.oobModeName || 'black'}</value>
+                </div>
               ` : ''}
               ${device.mapping.mode === 1 ? `
                 <div class="device-detail">
@@ -660,6 +889,10 @@ POST /api/frame     - Send image frame</code></pre>
                 <div class="device-detail">
                   <label>Line Pixels</label>
                   <value>${device.mapping.linePixels}</value>
+                </div>
+                <div class="device-detail">
+                  <label>Out-of-Bounds Mode</label>
+                  <value>${device.mapping.oobModeName || 'black'}</value>
                 </div>
               ` : ''}
               <div class="device-detail">
@@ -710,6 +943,46 @@ POST /api/frame     - Send image frame</code></pre>
           listDiv.innerHTML = `<div class="error">Discovery failed: ${error.message}</div>`;
         }
       }
+    }
+
+    async function identifyDevice(ip, hostname) {
+      const flashCount = 3; // Default to 3 flashes
+
+      try {
+        const response = await fetch('/api/identify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ip, flashCount })
+        });
+        const data = await response.json();
+
+        if (data.ok) {
+          showNotification(`✓ Identify signal sent to ${hostname || ip}`, 'success');
+        } else {
+          throw new Error(data.error || 'Identify failed');
+        }
+      } catch (error) {
+        showNotification(`✗ Identify failed: ${error.message}`, 'error');
+      }
+    }
+
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = type === 'success' ? 'success' : 'error';
+      notification.textContent = message;
+      notification.style.position = 'fixed';
+      notification.style.top = '20px';
+      notification.style.right = '20px';
+      notification.style.zIndex = '10000';
+      notification.style.padding = '15px 20px';
+      notification.style.borderRadius = '6px';
+      notification.style.boxShadow = '0 4px 12px rgba(0,0,0,0.2)';
+      notification.style.animation = 'slideIn 0.3s ease';
+      document.body.appendChild(notification);
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
     }
 
     async function calculateCoverage() {
@@ -789,7 +1062,45 @@ POST /api/frame     - Send image frame</code></pre>
       await calculateCoverage();
     }
 
+    function togglePatternControls() {
+      const pattern = document.getElementById('pattern').value;
+      const imageUploadSection = document.getElementById('imageUploadSection');
+      const imageResizeControls = document.getElementById('imageResizeControls');
+      const widthControl = document.getElementById('widthControl');
+      const heightControl = document.getElementById('heightControl');
+      const sendFrameBtn = document.getElementById('sendFrameBtn');
+      const sendImageBtn = document.getElementById('sendImageBtn');
+
+      if (pattern === 'image') {
+        // Show image upload controls
+        imageUploadSection.style.display = 'block';
+        widthControl.style.display = 'none';
+        heightControl.style.display = 'none';
+        sendFrameBtn.style.display = 'none';
+        sendImageBtn.style.display = uploadedImage ? 'inline-block' : 'none';
+        // Resize controls shown only if image is loaded (handled in handleImageUpload)
+      } else {
+        // Show pattern controls
+        imageUploadSection.style.display = 'none';
+        if (imageResizeControls) {
+          imageResizeControls.style.display = 'none';
+        }
+        widthControl.style.display = 'block';
+        heightControl.style.display = 'block';
+        sendFrameBtn.style.display = 'inline-block';
+        sendImageBtn.style.display = 'none';
+      }
+    }
+
     async function sendFrame() {
+      const pattern = document.getElementById('pattern').value;
+
+      // If image pattern selected, delegate to sendImage
+      if (pattern === 'image') {
+        await sendImage();
+        return;
+      }
+
       const resultDiv = document.getElementById('frameResult');
       resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Sending frame...</div>';
 
@@ -797,7 +1108,7 @@ POST /api/frame     - Send image frame</code></pre>
         width: parseInt(document.getElementById('frameWidth').value),
         height: parseInt(document.getElementById('frameHeight').value),
         rgbType: parseInt(document.getElementById('rgbType').value),
-        pattern: document.getElementById('pattern').value
+        pattern: pattern
       };
 
       try {
@@ -815,6 +1126,11 @@ POST /api/frame     - Send image frame</code></pre>
               <br><strong>Frame #${data.frameCounter}</strong> | ${data.chunkCount} chunk(s) | ${data.elapsedMs}ms
             </div>
           `;
+
+          // Update visualizer if on that tab
+          if (document.getElementById('visualizer').classList.contains('active')) {
+            await updateVisualizer();
+          }
         } else {
           throw new Error(data.error || 'Failed to send frame');
         }
@@ -828,7 +1144,7 @@ POST /api/frame     - Send image frame</code></pre>
     async function sendTestFrame() {
       const controlTab = document.getElementById('control');
       if (!controlTab.classList.contains('active')) {
-        document.querySelector('.tab:nth-child(4)').click();
+        document.querySelector('.tab:nth-child(5)').click(); // Control is now 5th tab
       }
 
       setTimeout(async () => {
@@ -836,6 +1152,7 @@ POST /api/frame     - Send image frame</code></pre>
         document.getElementById('frameHeight').value = 100;
         document.getElementById('rgbType').value = 0;
         document.getElementById('pattern').value = 'gradient';
+        togglePatternControls(); // Make sure correct controls are shown
         await sendFrame();
       }, 100);
     }
@@ -848,9 +1165,573 @@ POST /api/frame     - Send image frame</code></pre>
       }
     }
 
+    // Visualizer functionality
+    async function updateVisualizer() {
+      const canvas = document.getElementById('visualizerCanvas');
+      const ctx = canvas.getContext('2d');
+      const zoom = parseInt(document.getElementById('visZoom').value);
+      const showLabels = document.getElementById('visShowLabels').checked;
+
+      try {
+        // Fetch last frame data
+        const response = await fetch('/api/frame/last');
+        const frameData = await response.json();
+
+        if (!frameData.ok || !frameData.pixels) {
+          // No frame data, show empty state
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#666';
+          ctx.font = '20px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('No frame sent yet', canvas.width / 2, canvas.height / 2);
+          return;
+        }
+
+        const width = frameData.width;
+        const height = frameData.height;
+        const rgbType = frameData.rgbType;
+
+        // Resize canvas
+        canvas.width = width * zoom;
+        canvas.height = height * zoom;
+
+        // Decode pixel buffer from base64
+        const pixelBuffer = Uint8Array.from(atob(frameData.pixels), c => c.charCodeAt(0));
+
+        // Create ImageData for rendering
+        const imageData = ctx.createImageData(width, height);
+        let pixelIndex = 0;
+
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          let r, g, b;
+
+          if (rgbType === 0) { // RGB332
+            const byte = pixelBuffer[pixelIndex++];
+            r = ((byte >> 5) & 0x07) * 255 / 7;
+            g = ((byte >> 2) & 0x07) * 255 / 7;
+            b = (byte & 0x03) * 255 / 3;
+          } else { // RGB565
+            const low = pixelBuffer[pixelIndex++];
+            const high = pixelBuffer[pixelIndex++];
+            const rgb565 = (high << 8) | low;
+            r = ((rgb565 >> 11) & 0x1F) * 255 / 31;
+            g = ((rgb565 >> 5) & 0x3F) * 255 / 63;
+            b = (rgb565 & 0x1F) * 255 / 31;
+          }
+
+          imageData.data[i] = r;
+          imageData.data[i + 1] = g;
+          imageData.data[i + 2] = b;
+          imageData.data[i + 3] = 255; // Alpha
+        }
+
+        // Draw frame at 1x scale, then scale up with nearest-neighbor
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+
+        // Scale up with pixelated rendering
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tempCanvas, 0, 0, width * zoom, height * zoom);
+
+        // Overlay device regions if we have devices
+        if (devices.length > 0 && showLabels) {
+          devices.forEach((device, index) => {
+            if (device.mapping.mode === 2) { // Rectangle mode
+              const x = device.mapping.rectX || 0;
+              const y = device.mapping.rectY || 0;
+              const w = device.mapping.rectWidth || 1;
+              const h = device.mapping.rectHeight || 1;
+
+              // Semi-transparent border
+              const hue = (index * 137) % 360;
+              ctx.strokeStyle = `hsla(${hue}, 70%, 60%, 0.8)`;
+              ctx.lineWidth = 2;
+              ctx.strokeRect(x * zoom, y * zoom, w * zoom, h * zoom);
+
+              // Label
+              if (zoom >= 4) {
+                ctx.fillStyle = `hsla(${hue}, 70%, 60%, 0.9)`;
+                ctx.fillRect(x * zoom, y * zoom, w * zoom, Math.min(zoom * 2, 20));
+                ctx.fillStyle = '#fff';
+                ctx.font = `${Math.min(zoom * 1.5, 14)}px Arial`;
+                ctx.textAlign = 'left';
+                ctx.fillText(device.hostname || device.ip, x * zoom + 4, y * zoom + Math.min(zoom * 1.5, 14));
+              }
+            }
+          });
+        }
+
+        // Draw frame info
+        if (showLabels) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(0, 0, 150, 20);
+          ctx.fillStyle = '#fff';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${width}×${height} ${rgbType === 0 ? 'RGB332' : 'RGB565'}`, 5, 14);
+        }
+
+      } catch (error) {
+        console.error('Failed to load frame:', error);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#666';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Failed to load frame', canvas.width / 2, canvas.height / 2);
+      }
+    }
+
+    // Image upload functionality
+    let uploadedImage = null;
+    let uploadedImageData = null;
+    let originalImageWidth = 0;
+    let originalImageHeight = 0;
+    let imageAspectRatio = 1;
+
+    function initImageUpload() {
+      const dropZone = document.getElementById('dropZone');
+      const imageUpload = document.getElementById('imageUpload');
+
+      if (!dropZone || !imageUpload) return;
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) {
+          handleImageUpload(files[0]);
+        }
+      });
+
+      imageUpload.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          handleImageUpload(e.target.files[0]);
+        }
+      });
+    }
+
+    function handleImageUpload(file) {
+      // Check file size (limit to 10MB for source file)
+      if (file.size > 10 * 1024 * 1024) {
+        document.getElementById('frameResult').innerHTML = `
+          <div class="error">Image file too large: ${(file.size / 1024 / 1024).toFixed(1)}MB. Maximum 10MB.</div>
+        `;
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        uploadedImage = new Image();
+        uploadedImage.onload = () => {
+          const uploadPreview = document.getElementById('uploadPreview');
+          uploadPreview.src = e.target.result;
+          uploadPreview.style.display = 'block';
+
+          // Store original dimensions
+          originalImageWidth = uploadedImage.width;
+          originalImageHeight = uploadedImage.height;
+          imageAspectRatio = originalImageWidth / originalImageHeight;
+
+          // Store base64 data
+          uploadedImageData = e.target.result;
+
+          // Show resize controls
+          const resizeControls = document.getElementById('imageResizeControls');
+          resizeControls.style.display = 'block';
+
+          // Set initial target dimensions (constrained to reasonable LED display size)
+          let targetWidth = Math.min(originalImageWidth, 100);
+          let targetHeight = Math.min(originalImageHeight, 100);
+
+          // Maintain aspect ratio
+          if (targetWidth / targetHeight !== imageAspectRatio) {
+            if (originalImageWidth > originalImageHeight) {
+              targetHeight = Math.round(targetWidth / imageAspectRatio);
+            } else {
+              targetWidth = Math.round(targetHeight * imageAspectRatio);
+            }
+          }
+
+          document.getElementById('imageWidth').value = targetWidth;
+          document.getElementById('imageHeight').value = targetHeight;
+          document.getElementById('originalDimensions').textContent = `${originalImageWidth}×${originalImageHeight}`;
+
+          document.getElementById('sendImageBtn').style.display = 'inline-block';
+
+          document.getElementById('frameResult').innerHTML = `
+            <div class="success">
+              ✓ Image loaded: ${originalImageWidth}×${originalImageHeight} pixels<br>
+              Target: ${targetWidth}×${targetHeight} pixels
+            </div>
+          `;
+        };
+        uploadedImage.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function handleImageDimensionChange(changedDimension) {
+      const lockAspectRatio = document.getElementById('lockAspectRatio').checked;
+      if (!lockAspectRatio) return;
+
+      const widthInput = document.getElementById('imageWidth');
+      const heightInput = document.getElementById('imageHeight');
+
+      if (changedDimension === 'width') {
+        const newWidth = parseInt(widthInput.value) || 1;
+        const newHeight = Math.round(newWidth / imageAspectRatio);
+        heightInput.value = newHeight;
+      } else {
+        const newHeight = parseInt(heightInput.value) || 1;
+        const newWidth = Math.round(newHeight * imageAspectRatio);
+        widthInput.value = newWidth;
+      }
+    }
+
+    function lockAspectRatioChanged() {
+      const lockAspectRatio = document.getElementById('lockAspectRatio').checked;
+      if (lockAspectRatio) {
+        // Re-calculate aspect ratio from current values
+        const currentWidth = parseInt(document.getElementById('imageWidth').value) || 1;
+        const currentHeight = parseInt(document.getElementById('imageHeight').value) || 1;
+        imageAspectRatio = currentWidth / currentHeight;
+      }
+    }
+
+    async function sendImage() {
+      if (!uploadedImageData) {
+        document.getElementById('frameResult').innerHTML = `
+          <div class="error">No image selected. Click the drop zone to upload an image.</div>
+        `;
+        return;
+      }
+
+      const targetWidth = parseInt(document.getElementById('imageWidth').value);
+      const targetHeight = parseInt(document.getElementById('imageHeight').value);
+
+      if (!targetWidth || !targetHeight || targetWidth < 1 || targetHeight < 1) {
+        document.getElementById('frameResult').innerHTML = `
+          <div class="error">Invalid dimensions. Please set width and height.</div>
+        `;
+        return;
+      }
+
+      document.getElementById('frameResult').innerHTML = `
+        <div class="loading"><div class="spinner"></div>Resizing and sending image...</div>
+      `;
+
+      try {
+        const payload = {
+          image: uploadedImageData,
+          rgbType: parseInt(document.getElementById('rgbType').value),
+          targetWidth: targetWidth,
+          targetHeight: targetHeight
+        };
+
+        console.log('Sending image:', {
+          rgbType: payload.rgbType,
+          targetWidth: payload.targetWidth,
+          targetHeight: payload.targetHeight,
+          imageDataLength: uploadedImageData.length
+        });
+
+        const response = await fetch('/api/frame/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Server error: ${response.status} - ${errorText}`);
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Server returned non-JSON response:', text);
+          throw new Error('Server returned invalid response (expected JSON)');
+        }
+
+        const data = await response.json();
+
+        if (data.ok) {
+          const resizeInfo = (originalImageWidth !== data.width || originalImageHeight !== data.height)
+            ? `<br>Resized from ${originalImageWidth}×${originalImageHeight} to ${data.width}×${data.height}`
+            : '';
+          document.getElementById('frameResult').innerHTML = `
+            <div class="success">
+              ✓ Image sent successfully!${resizeInfo}
+              <br><strong>Frame #${data.frameCounter}</strong> | ${data.chunkCount} chunk(s) | ${data.elapsedMs}ms
+            </div>
+          `;
+
+          // Update visualizer to show what was sent
+          if (document.getElementById('visualizer').classList.contains('active')) {
+            await updateVisualizer();
+          }
+        } else {
+          throw new Error(data.error || 'Failed to send image');
+        }
+      } catch (error) {
+        document.getElementById('frameResult').innerHTML = `
+          <div class="error">Failed to send image: ${error.message}</div>
+        `;
+      }
+    }
+
+    // ========================================================================
+    // Animation Functions
+    // ========================================================================
+
+    let animationRunning = false;
+    let animationIntervalId = null;
+    let animationStartTime = 0;
+    let animationFrameCount = 0;
+    let animationOffset = 0;
+
+    function updateFpsDisplay() {
+      const fps = document.getElementById('animFps').value;
+      const frameTime = Math.round(1000 / fps);
+      document.getElementById('fpsValue').textContent = fps;
+      document.getElementById('frameTimeValue').textContent = frameTime;
+    }
+
+    async function startAnimation() {
+      if (animationRunning) return;
+
+      const width = parseInt(document.getElementById('animWidth').value);
+      const height = parseInt(document.getElementById('animHeight').value);
+      const rgbType = parseInt(document.getElementById('animRgbType').value);
+      const fps = parseInt(document.getElementById('animFps').value);
+      const frameInterval = 1000 / fps;
+
+      // Reset stats
+      animationFrameCount = 0;
+      animationStartTime = Date.now();
+      animationOffset = 0;
+
+      // Update UI
+      animationRunning = true;
+      document.getElementById('startAnimBtn').disabled = true;
+      document.getElementById('stopAnimBtn').disabled = false;
+      document.getElementById('animationStats').style.display = 'block';
+      document.getElementById('animationVisualizerCard').style.display = 'block';
+
+      // Initial visualizer update
+      await updateAnimationVisualizer();
+
+      // Animation loop
+      animationIntervalId = setInterval(async () => {
+        try {
+          await sendAnimationFrame(width, height, rgbType);
+          animationFrameCount++;
+          animationOffset = (animationOffset + 1) % 360; // Cycle through 360 degrees
+
+          // Update stats
+          const runningTime = ((Date.now() - animationStartTime) / 1000).toFixed(1);
+          const actualFps = (animationFrameCount / (Date.now() - animationStartTime) * 1000).toFixed(1);
+          document.getElementById('animFramesSent').textContent = animationFrameCount;
+          document.getElementById('animRunningTime').textContent = runningTime + 's';
+          document.getElementById('animActualFps').textContent = actualFps;
+
+          // Update visualizer if auto-refresh is enabled
+          if (document.getElementById('animVisAutoRefresh').checked) {
+            await updateAnimationVisualizer();
+          }
+        } catch (error) {
+          console.error('Animation frame error:', error);
+        }
+      }, frameInterval);
+    }
+
+    function stopAnimation() {
+      if (!animationRunning) return;
+
+      animationRunning = false;
+      if (animationIntervalId) {
+        clearInterval(animationIntervalId);
+        animationIntervalId = null;
+      }
+
+      // Update UI
+      document.getElementById('startAnimBtn').disabled = false;
+      document.getElementById('stopAnimBtn').disabled = true;
+      // Keep stats and visualizer visible after stop (don't hide them)
+    }
+
+    async function sendAnimationFrame(width, height, rgbType) {
+      const response = await fetch('/api/frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          width,
+          height,
+          rgbType,
+          pattern: 'rainbow',
+          patternOptions: {
+            offset: animationOffset
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.ok) {
+        throw new Error(data.error || 'Frame send failed');
+      }
+    }
+
+    async function updateAnimationVisualizer() {
+      const canvas = document.getElementById('animationVisualizerCanvas');
+      const ctx = canvas.getContext('2d');
+      const zoom = parseInt(document.getElementById('animVisZoom').value);
+      const showLabels = document.getElementById('animVisShowLabels').checked;
+
+      try {
+        // Fetch last frame data
+        const response = await fetch('/api/frame/last');
+        const frameData = await response.json();
+
+        if (!frameData.ok || !frameData.pixels) {
+          // No frame data, show empty state
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#666';
+          ctx.font = '20px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('No frame sent yet', canvas.width / 2, canvas.height / 2);
+          return;
+        }
+
+        const width = frameData.width;
+        const height = frameData.height;
+        const rgbType = frameData.rgbType;
+
+        // Resize canvas
+        canvas.width = width * zoom;
+        canvas.height = height * zoom;
+
+        // Decode pixel buffer from base64
+        const pixelBuffer = Uint8Array.from(atob(frameData.pixels), c => c.charCodeAt(0));
+
+        // Create ImageData for rendering
+        const imageData = ctx.createImageData(width, height);
+        let pixelIndex = 0;
+
+        for (let i = 0; i < imageData.data.length; i += 4) {
+          let r, g, b;
+
+          if (rgbType === 0) { // RGB332
+            const byte = pixelBuffer[pixelIndex++];
+            r = ((byte >> 5) & 0x07) * 255 / 7;
+            g = ((byte >> 2) & 0x07) * 255 / 7;
+            b = (byte & 0x03) * 255 / 3;
+          } else { // RGB565
+            const low = pixelBuffer[pixelIndex++];
+            const high = pixelBuffer[pixelIndex++];
+            const rgb565 = (high << 8) | low;
+            r = ((rgb565 >> 11) & 0x1F) * 255 / 31;
+            g = ((rgb565 >> 5) & 0x3F) * 255 / 63;
+            b = (rgb565 & 0x1F) * 255 / 31;
+          }
+
+          imageData.data[i] = r;
+          imageData.data[i + 1] = g;
+          imageData.data[i + 2] = b;
+          imageData.data[i + 3] = 255; // Alpha
+        }
+
+        // Draw frame at 1x scale, then scale up with nearest-neighbor
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+
+        // Scale up with pixelated rendering
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(tempCanvas, 0, 0, width * zoom, height * zoom);
+
+        // Overlay device regions if we have devices
+        if (devices.length > 0 && showLabels) {
+          devices.forEach((device, index) => {
+            if (device.mapping.mode === 2) { // Rectangle mode
+              const x = device.mapping.rectX || 0;
+              const y = device.mapping.rectY || 0;
+              const w = device.mapping.rectWidth || 1;
+              const h = device.mapping.rectHeight || 1;
+
+              // Semi-transparent border
+              const hue = (index * 137) % 360;
+              ctx.strokeStyle = `hsla(${hue}, 70%, 60%, 0.8)`;
+              ctx.lineWidth = 2;
+              ctx.strokeRect(x * zoom, y * zoom, w * zoom, h * zoom);
+
+              // Label
+              if (zoom >= 4) {
+                ctx.fillStyle = `hsla(${hue}, 70%, 60%, 0.9)`;
+                ctx.fillRect(x * zoom, y * zoom, w * zoom, Math.min(zoom * 2, 20));
+                ctx.fillStyle = '#fff';
+                ctx.font = `${Math.min(zoom * 1.5, 14)}px Arial`;
+                ctx.textAlign = 'left';
+                ctx.fillText(device.hostname || device.ip, x * zoom + 4, y * zoom + Math.min(zoom * 1.5, 14));
+              }
+            }
+          });
+        }
+
+        // Draw frame info
+        if (showLabels) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(0, 0, 200, 20);
+          ctx.fillStyle = '#fff';
+          ctx.font = '12px Arial';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${width}×${height} ${rgbType === 0 ? 'RGB332' : 'RGB565'} (Animating)`, 5, 14);
+        }
+
+      } catch (error) {
+        console.error('Failed to load frame:', error);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#666';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Failed to load frame', canvas.width / 2, canvas.height / 2);
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
       await loadServerConfig();
       await loadDevices();
+      initImageUpload();
+      togglePatternControls(); // Initialize control visibility
+      updateFpsDisplay(); // Initialize FPS display
+    });
+
+    // Stop animation when page is unloaded
+    window.addEventListener('beforeunload', () => {
+      if (animationRunning) {
+        stopAnimation();
+      }
     });
 
     setInterval(refreshData, 10000);

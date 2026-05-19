@@ -1,0 +1,48 @@
+{
+  "name": "FataMorgana-WebUI",
+  "version": "1.0.0",
+  "description": "Optional web configuration interface for FataMorgana LED display library. Provides HTTP endpoints and WebSocket real-time updates for remote device configuration.",
+  "keywords": [
+    "FataMorgana",
+    "LED",
+    "WebUI",
+    "WebSocket",
+    "configuration",
+    "HTTP",
+    "ESP8266",
+    "ESP32"
+  ],
+  "authors": [
+    {
+      "name": "Your Name",
+      "email": "your.email@example.com"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourname/FataMorgana.git"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/yourname/FataMorgana",
+  "frameworks": ["arduino", "espidf"],
+  "platforms": ["espressif8266", "espressif32"],
+  "dependencies": {
+    "FataMorgana": "^1.0.0",
+    "bblanchon/ArduinoJson": "^7.0.4",
+    "links2004/WebSockets": "^2.4.1"
+  },
+  "export": {
+    "include": [
+      "src",
+      "examples",
+      "README.md"
+    ]
+  },
+  "examples": [
+    {
+      "name": "WithWebInterface",
+      "base": "examples/WithWebInterface",
+      "files": ["WithWebInterface.ino"]
+    }
+  ]
+}

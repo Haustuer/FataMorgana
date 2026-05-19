@@ -1,0 +1,18 @@
+#######################################
+# FataMorgana-WebUI Library Keywords
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+FataMorganaWebUI	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+loop	KEYWORD2
+enableWebSocket	KEYWORD2
+broadcastStatus	KEYWORD2

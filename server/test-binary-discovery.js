@@ -2,15 +2,16 @@
 
 /**
  * Test script to verify binary discovery response parsing
- * Creates a mock 64-byte discovery response and tests parsing
+ * Tests both legacy 68-byte and current 69-byte discovery responses
  */
-
-const dgram = require('dgram');
 
 // Simulate the binary parsing function from gradientFrameServer.js
 function parseDiscoveryResponse(buffer) {
-  if (buffer.length !== 64) {
-    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 64)`);
+  const isLegacyResponse = buffer.length === 68;
+  const isCurrentResponse = buffer.length === 69;
+
+  if (!isLegacyResponse && !isCurrentResponse) {
+    throw new Error(`Invalid discovery response length: ${buffer.length} (expected 68 or 69)`);
   }
 
   // Check magic bytes "FATA" (0x46415441)
@@ -31,7 +32,7 @@ function parseDiscoveryResponse(buffer) {
 
   // Parse MAC address
   const mac = Array.from(buffer.subarray(12, 18))
-    .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+    .map((b) => b.toString(16).padStart(2, '0').toUpperCase())
     .join(':');
 
   const chipId = buffer.readUInt32LE(18);
@@ -51,7 +52,14 @@ function parseDiscoveryResponse(buffer) {
   const rectY = buffer.readUInt16LE(40);
   const rectWidth = buffer.readUInt16LE(42);
   const rectHeight = buffer.readUInt16LE(44);
-  const serpentine = buffer.readUInt8(46) === 1;
+  const serpentine = buffer.readUInt8(46);
+
+  // Parse transform byte (position 47)
+  const transformByte = buffer.readUInt8(47);
+  const rotation = transformByte & 0x03;
+  const flipX = (transformByte & 0x04) !== 0;
+  const flipY = (transformByte & 0x08) !== 0;
+  const flipZ = (transformByte & 0x10) !== 0;
 
   const acceptedPackets = buffer.readUInt32LE(48);
   const rejectedPackets = buffer.readUInt32LE(52);
@@ -59,8 +67,16 @@ function parseDiscoveryResponse(buffer) {
   const lastFrameWidth = buffer.readUInt16LE(60);
   const lastFrameHeight = buffer.readUInt16LE(62);
 
+  // Gamma correction (float, little-endian)
+  const gamma = buffer.readFloatLE(64);
+
+  // Legacy responses end at gamma; newer responses append out-of-bounds mode.
+  const oobMode = isCurrentResponse ? buffer.readUInt8(68) : 0;
+
   const modeNames = ['row', 'column', 'rectangle'];
   const sampleModeNames = ['pixel', 'interpolated'];
+  const serpentineModeNames = ['none', 'horizontal', 'vertical'];
+  const oobModeNames = ['black', 'clamp', 'mirror'];
 
   return {
     protocol: 'FataMorgana',
@@ -92,7 +108,15 @@ function parseDiscoveryResponse(buffer) {
       rectY,
       rectWidth,
       rectHeight,
-      serpentine
+      serpentine,
+      serpentineModeName: serpentineModeNames[serpentine] || 'unknown',
+      rotation,
+      flipX,
+      flipY,
+      flipZ,
+      gamma,
+      oobMode,
+      oobModeName: oobModeNames[oobMode] || 'unknown'
     },
     status: {
       lastFrameCounter: 0,
@@ -107,19 +131,18 @@ function parseDiscoveryResponse(buffer) {
   };
 }
 
-// Create a mock discovery response packet
-function createMockResponse() {
-  const response = Buffer.alloc(64);
+function createMockResponse({ includeOobMode }) {
+  const response = Buffer.alloc(includeOobMode ? 69 : 68);
 
   // Magic bytes "FATA"
-  response[0] = 0x46; // 'F'
-  response[1] = 0x41; // 'A'
-  response[2] = 0x54; // 'T'
-  response[3] = 0x41; // 'A'
+  response[0] = 0x46;
+  response[1] = 0x41;
+  response[2] = 0x54;
+  response[3] = 0x41;
 
   // Protocol version and type
-  response[4] = 1;    // Version
-  response[5] = 0x01; // Discovery response type
+  response[4] = 1;
+  response[5] = 0x01;
 
   // Device IP: 192.168.1.100 (big-endian)
   response[8] = 192;
@@ -144,74 +167,57 @@ function createMockResponse() {
   // LED Count: 256 (little-endian)
   response.writeUInt16LE(256, 26);
 
-  // LED Pin: 12
+  // LED Pin / brightness / firmware
   response[28] = 12;
-
-  // Brightness: 80
   response[29] = 80;
-
-  // Firmware: 1.0
   response[30] = 1;
   response[31] = 0;
 
-  // Mapping Mode: 2 (rectangle)
+  // Mapping Mode: 2 (rectangle), Sample Mode: 0 (pixel)
   response[32] = 2;
-
-  // Sample Mode: 0 (pixel)
   response[33] = 0;
-
-  // Row/Column Index: 0
   response.writeUInt16LE(0, 34);
-
-  // Line Pixels: 16
   response.writeUInt16LE(16, 36);
-
-  // Rectangle: (0,0) 16x16
-  response.writeUInt16LE(0, 38);  // X
-  response.writeUInt16LE(0, 40);  // Y
-  response.writeUInt16LE(16, 42); // Width
-  response.writeUInt16LE(16, 44); // Height
-
-  // Serpentine: 0 (no)
-  response[46] = 0;
+  response.writeUInt16LE(0, 38);
+  response.writeUInt16LE(0, 40);
+  response.writeUInt16LE(16, 42);
+  response.writeUInt16LE(16, 44);
+  response[46] = 1; // horizontal serpentine
+  response[47] = 0x05; // rotation 90deg + flipX
 
   // Statistics
-  response.writeUInt32LE(1523, 48);  // Accepted packets
-  response.writeUInt32LE(12, 52);    // Rejected packets
-  response.writeUInt32LE(507, 56);   // Rendered frames
+  response.writeUInt32LE(1523, 48);
+  response.writeUInt32LE(12, 52);
+  response.writeUInt32LE(507, 56);
 
   // Last frame: 24x100
   response.writeUInt16LE(24, 60);
   response.writeUInt16LE(100, 62);
 
+  // Gamma correction: 2.2 (float, little-endian)
+  response.writeFloatLE(2.2, 64);
+
+  if (includeOobMode) {
+    response[68] = 2; // mirror
+  }
+
   return response;
 }
 
-console.log('\n╔════════════════════════════════════════════════════════╗');
-console.log('║    Binary Discovery Response Format Test              ║');
-console.log('╚════════════════════════════════════════════════════════╝\n');
-
-try {
-  console.log('Creating mock 64-byte discovery response...');
-  const mockPacket = createMockResponse();
-
-  console.log('\nHex dump:');
-  for (let i = 0; i < mockPacket.length; i += 16) {
-    const chunk = mockPacket.subarray(i, i + 16);
+function printHexDump(buffer) {
+  for (let i = 0; i < buffer.length; i += 16) {
+    const chunk = buffer.subarray(i, i + 16);
     const hex = Array.from(chunk)
-      .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+      .map((b) => b.toString(16).padStart(2, '0').toUpperCase())
       .join(' ');
     const ascii = Array.from(chunk)
-      .map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.')
+      .map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.'))
       .join('');
     console.log(`  ${i.toString(16).padStart(4, '0')}: ${hex.padEnd(48)}  ${ascii}`);
   }
+}
 
-  console.log('\nParsing response...');
-  const parsed = parseDiscoveryResponse(mockPacket);
-
-  console.log('\n✓ Successfully parsed!\n');
-
+function printParsedResponse(parsed) {
   console.log('Device Information:');
   console.log(`  IP:        ${parsed.device.ip}`);
   console.log(`  MAC:       ${parsed.device.mac}`);
@@ -229,20 +235,53 @@ try {
   console.log(`  Mode:         ${parsed.mapping.modeName} (${parsed.mapping.mode})`);
   console.log(`  Sample Mode:  ${parsed.mapping.sampleModeName} (${parsed.mapping.sampleMode})`);
   if (parsed.mapping.mode === 2) {
-    console.log(`  Rectangle:    (${parsed.mapping.rectX},${parsed.mapping.rectY}) ${parsed.mapping.rectWidth}×${parsed.mapping.rectHeight}`);
-    console.log(`  Serpentine:   ${parsed.mapping.serpentine ? 'Yes' : 'No'}`);
+    console.log(`  Rectangle:    (${parsed.mapping.rectX},${parsed.mapping.rectY}) ${parsed.mapping.rectWidth}x${parsed.mapping.rectHeight}`);
+    console.log(`  Serpentine:   ${parsed.mapping.serpentineModeName}`);
+    console.log(`  Rotation:     ${parsed.mapping.rotation * 90} deg`);
+    console.log(`  Flip X/Y/Z:   ${parsed.mapping.flipX}/${parsed.mapping.flipY}/${parsed.mapping.flipZ}`);
   }
+  console.log(`  Gamma:        ${parsed.mapping.gamma.toFixed(2)}`);
+  console.log(`  OOB Mode:     ${parsed.mapping.oobModeName} (${parsed.mapping.oobMode})`);
 
   console.log('\nStatistics:');
   console.log(`  Accepted Packets:  ${parsed.status.acceptedPackets}`);
   console.log(`  Rejected Packets:  ${parsed.status.rejectedPackets}`);
   console.log(`  Rendered Frames:   ${parsed.status.renderedFrames}`);
-  console.log(`  Last Frame:        ${parsed.status.lastFrameWidth}×${parsed.status.lastFrameHeight}`);
+  console.log(`  Last Frame:        ${parsed.status.lastFrameWidth}x${parsed.status.lastFrameHeight}`);
+}
 
-  console.log('\n✅ All tests passed!');
-  console.log('\nPacket size: 64 bytes (vs ~300 bytes JSON)');
-  console.log('Size reduction: 78%\n');
+console.log('\n╔════════════════════════════════════════════════════════╗');
+console.log('║    Binary Discovery Response Format Test              ║');
+console.log('╚════════════════════════════════════════════════════════╝\n');
 
+try {
+  const testCases = [
+    { label: 'legacy 68-byte response', includeOobMode: false, expectedOobMode: 0 },
+    { label: 'current 69-byte response', includeOobMode: true, expectedOobMode: 2 }
+  ];
+
+  for (const testCase of testCases) {
+    console.log(`Creating mock ${testCase.label}...`);
+    const mockPacket = createMockResponse({ includeOobMode: testCase.includeOobMode });
+
+    console.log('\nHex dump:');
+    printHexDump(mockPacket);
+
+    console.log('\nParsing response...');
+    const parsed = parseDiscoveryResponse(mockPacket);
+
+    if (parsed.mapping.oobMode !== testCase.expectedOobMode) {
+      throw new Error(`Unexpected oobMode ${parsed.mapping.oobMode} for ${testCase.label}`);
+    }
+
+    console.log('\n✓ Successfully parsed!\n');
+    printParsedResponse(parsed);
+    console.log('');
+  }
+
+  console.log('✅ All tests passed!');
+  console.log('\nPacket sizes: 68-byte legacy and 69-byte current (vs ~300 bytes JSON)');
+  console.log('Size reduction: 77%+\n');
 } catch (error) {
   console.error('\n❌ Test failed:', error.message);
   console.error(error.stack);
