@@ -335,8 +335,8 @@ sudo tcpdump -i any 'udp and (dst 239.255.42.1 or port 7778)' -X
 ## Files Modified
 
 ### Server
-- ✏️ `server/gradientFrameServer.js` - Multicast + discovery
-- ✨ `server/PROTOCOL_IMPLEMENTATION.md` - Protocol docs
+- ✏️ `server/server.js` - Multicast + discovery
+- ✨ `FATAMORGANA_PROTOCOL.md` - Protocol specification
 - ✨ `server/README.md` - Server documentation
 
 ### Device

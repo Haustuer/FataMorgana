@@ -199,7 +199,7 @@ This separation allows you to:
 - Create custom configuration interfaces (MQTT, BLE, Serial, etc.)
 - Keep dependencies minimal for production deployments
 
-Read more: [LIBRARY_ARCHITECTURE.md](LIBRARY_ARCHITECTURE.md)
+Read more: [LIBRARY_ARCHITECTURE.md](docs/LIBRARY_ARCHITECTURE.md)
 
 ---
 
@@ -222,13 +222,13 @@ Open examples in Arduino IDE:
 
 ## Documentation
 
-- **[Getting Started](GETTING_STARTED.md)** - Complete setup guide
-- **[API Reference](API.md)** - Complete API documentation
-- **[Protocol Specification](FATAMORGANA_PROTOCOL.md)** - Binary protocol details
-- **[Library Architecture](LIBRARY_ARCHITECTURE.md)** - Design decisions
-- **[Transform Feature](TRANSFORM_FEATURE.md)** - Rotation and flip guide
-- **[Network Configuration](NETWORK_CONFIG.md)** - Multicast setup
-- **[Changelog](CHANGELOG.md)** - Version history
+- **[Getting Started](docs/GETTING_STARTED.md)** - Complete setup guide
+- **[API Reference](docs/API.md)** - Complete API documentation
+- **[Protocol Specification](docs/FATAMORGANA_PROTOCOL.md)** - Binary protocol details
+- **[Library Architecture](docs/LIBRARY_ARCHITECTURE.md)** - Design decisions
+- **[Transform Feature](docs/TRANSFORM_FEATURE.md)** - Rotation and flip guide
+- **[Network Configuration](docs/NETWORK_CONFIG.md)** - Multicast setup
+- **[Changelog](docs/CHANGELOG.md)** - Version history
 
 ---
 
@@ -386,7 +386,7 @@ sudo ip route add 239.0.0.0/8 dev eth0
 - Rectangle position/size correct
 - No accidental rotation/flips
 
-See [GETTING_STARTED.md](GETTING_STARTED.md) for complete troubleshooting guide.
+See [GETTING_STARTED.md](docs/GETTING_STARTED.md) for complete troubleshooting guide.
 
 ---
 

@@ -18,7 +18,7 @@ This directory contains two server implementations for the FataMorgana LED displ
 - **Rainbow Animation** - Animated rainbow with configurable FPS (1-80), resolution, and encoding
 - **Live Visualizer** - See frames with device regions overlaid
 - **Coverage Map** - Calculate pixel coverage across devices
-- Implements 8-byte header protocol (see PROJECT_IDEA.md)
+- Implements 8-byte header protocol (see ../docs/FATAMORGANA_PROTOCOL.md)
 - Supports RGB332 and RGB565 pixel formats
 - Automatic frame chunking for large images
 - Configurable inter-packet delay to prevent ESP WiFi buffer overflow
@@ -77,45 +77,13 @@ curl -X POST http://localhost:3001/api/frame/image \
   -d '{"image":"data:image/png;base64,...","targetWidth":24,"targetHeight":100,"rgbType":0}'
 ```
 
-### 2. server.js
-
-**Purpose:** WebSocket-based device management server
-
-**Features:**
-- Manages multiple ESP devices
-- WebSocket communication for real-time updates
-- Device registration and mapping
-- Admin interface for device configuration
-- Persists device-to-grid mapping
-
-**Usage:**
-```bash
-# Start with default grid size
-node server.js
-
-# Custom grid configuration
-GRID_X=8 GRID_Y=8 Z_LEN=100 PORT=8080 node server.js
-```
-
-**Endpoints:**
-- `GET /api/config` - Grid configuration
-- `GET /api/devices` - List connected devices
-- `POST /api/assign` - Assign device to grid position
-- `ws://host:port/ws/device` - WebSocket for ESP devices
-- `ws://host:port/ws/admin` - WebSocket for admin UI
-
 ## Quick Start
 
-### Running Both Servers
-
 ```bash
-# Terminal 1: Device management server
+# Start the server
 node server.js
 
-# Terminal 2: UDP frame broadcaster
-node server.js
-
-# Terminal 3: Send test frames
+# In another terminal, send test frames
 node test-protocol.js gradient 24 100 0
 ```
 
@@ -140,24 +108,25 @@ node test-protocol.js gradient 24 100 0
 
 ## Protocol Documentation
 
-See **PROTOCOL_IMPLEMENTATION.md** for detailed protocol specification and usage examples.
+See **[FATAMORGANA_PROTOCOL.md](../docs/FATAMORGANA_PROTOCOL.md)** for detailed protocol specification and usage examples.
 
 ## File Structure
 
 ```
 server/
-├── server.js          # UDP multicast frame broadcaster
+├── server.js                       # UDP multicast frame broadcaster
 ├── gradient-frame-public/          # Web control panel
 │   └── index.html                 # Single-page control interface
-├── server.js                       # WebSocket device manager (legacy)
 ├── logger.js                       # Logging utility
 ├── test-protocol.js                # Protocol testing script
-├── PROTOCOL_IMPLEMENTATION.md      # Detailed protocol docs
+├── test-discovery.js               # Discovery protocol testing
+├── test-binary-discovery.js        # Binary discovery format testing
 ├── README.md                       # This file
 ├── package.json                    # Node dependencies
 ├── public/                         # Admin web interface (legacy)
-└── data/                          # Persistent data (created at runtime)
-    └── mapping.json               # Device mappings
+├── arc/                            # Archived old implementations
+└── data/                           # Persistent data (created at runtime)
+    └── mapping.json                # Device mappings
 ```
 
 ## Network Architecture
@@ -287,11 +256,11 @@ sudo tcpdump -i any -n udp port 7777 -X
 
 When modifying the protocol:
 
-1. Update PROJECT_IDEA.md (protocol design)
-2. Update PROTOCOL_IMPLEMENTATION.md (implementation details)
-3. Update ESP code in src/main.cpp
+1. Update [FATAMORGANA_PROTOCOL.md](../docs/FATAMORGANA_PROTOCOL.md) (protocol specification)
+2. Update ESP code in ../src/
+3. Update server.js implementation
 4. Test with multiple ESP devices
-5. Document breaking changes
+5. Document breaking changes in [CHANGELOG.md](../docs/CHANGELOG.md)
 
 ## License
 
