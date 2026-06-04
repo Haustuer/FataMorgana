@@ -4,7 +4,7 @@ This directory contains two server implementations for the FataMorgana LED displ
 
 ## Components
 
-### 1. gradientFrameServer.js
+### 1. server.js
 
 **Purpose:** UDP multicast frame broadcaster with web control panel
 
@@ -29,13 +29,13 @@ This directory contains two server implementations for the FataMorgana LED displ
 npm install
 
 # Start server with defaults
-node gradientFrameServer.js
+node server.js
 
 # With custom configuration
-HTTP_PORT=3001 MULTICAST_ADDR=239.255.42.1 MULTICAST_PORT=7777 node gradientFrameServer.js
+HTTP_PORT=3001 MULTICAST_ADDR=239.255.42.1 MULTICAST_PORT=7777 node server.js
 
 # Enable verbose logging
-VERBOSE=true node gradientFrameServer.js
+VERBOSE=true node server.js
 ```
 
 **Web Interface:**
@@ -113,7 +113,7 @@ GRID_X=8 GRID_Y=8 Z_LEN=100 PORT=8080 node server.js
 node server.js
 
 # Terminal 2: UDP frame broadcaster
-node gradientFrameServer.js
+node server.js
 
 # Terminal 3: Send test frames
 node test-protocol.js gradient 24 100 0
@@ -121,7 +121,7 @@ node test-protocol.js gradient 24 100 0
 
 ### Environment Variables
 
-**gradientFrameServer.js:**
+**server.js:**
 - `HTTP_PORT` (default: 3001) - HTTP API and web interface port
 - `MULTICAST_ADDR` (default: 239.255.42.1) - UDP multicast group address
 - `MULTICAST_PORT` (default: 7777) - UDP multicast port
@@ -146,7 +146,7 @@ See **PROTOCOL_IMPLEMENTATION.md** for detailed protocol specification and usage
 
 ```
 server/
-├── gradientFrameServer.js          # UDP multicast frame broadcaster
+├── server.js          # UDP multicast frame broadcaster
 ├── gradient-frame-public/          # Web control panel
 │   └── index.html                 # Single-page control interface
 ├── server.js                       # WebSocket device manager (legacy)
@@ -167,7 +167,7 @@ server/
 │                          Your Network                           │
 │                                                                 │
 │  ┌──────────────────────────────────────────────┐              │
-│  │  gradientFrameServer.js                      │              │
+│  │  server.js                      │              │
 │  │  ┌──────────────┐  ┌────────────────────┐   │              │
 │  │  │ Web UI       │  │ UDP Multicast      │   │              │
 │  │  │ Port 3001    │  │ 239.255.42.1:7777  │   │              │
@@ -205,7 +205,7 @@ server/
 
 ### Adding New Patterns
 
-Edit `gradientFrameServer.js` and add a new pattern generator function:
+Edit `server.js` and add a new pattern generator function:
 
 ```javascript
 function buildMyPatternFrame(width, height, rgbType, options) {
@@ -236,7 +236,7 @@ Then add it to the pattern switch in `sendFrame()`.
 
 **Enable verbose logging:**
 ```bash
-VERBOSE=true node gradientFrameServer.js
+VERBOSE=true node server.js
 ```
 
 **Check ESP status:**

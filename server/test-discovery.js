@@ -148,7 +148,7 @@ async function main() {
   } catch (error) {
     console.error('\n✗ Test failed:', error.message);
     console.error('\nIs the server running?');
-    console.error(`Try: node gradientFrameServer.js\n`);
+    console.error(`Try: node server.js\n`);
     process.exit(1);
   }
 }

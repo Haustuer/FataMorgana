@@ -95,7 +95,7 @@ const req = http.request(options, (res) => {
 req.on('error', (error) => {
   console.error('✗ Request failed:', error.message);
   console.error('\nIs the gradient frame server running?');
-  console.error(`Try: node gradientFrameServer.js\n`);
+  console.error(`Try: node server.js\n`);
   process.exit(1);
 });
 

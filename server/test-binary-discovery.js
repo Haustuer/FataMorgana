@@ -5,7 +5,7 @@
  * Tests both legacy 68-byte and current 69-byte discovery responses
  */
 
-// Simulate the binary parsing function from gradientFrameServer.js
+// Simulate the binary parsing function from server.js
 function parseDiscoveryResponse(buffer) {
   const isLegacyResponse = buffer.length === 68;
   const isCurrentResponse = buffer.length === 69;
